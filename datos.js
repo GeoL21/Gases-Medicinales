@@ -23,8 +23,8 @@
   function fecha(v) {
     if (!v) return null;
     if (v instanceof Date) return isNaN(v) ? null : v;
-    var s = texto(v), m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-    var d = m ? new Date(+m[3], +m[2] - 1, +m[1], 12) : new Date(s);
+    var s = texto(v), m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/), i = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    var d = m ? new Date(+m[3], +m[2] - 1, +m[1], 12) : i ? new Date(+i[1], +i[2] - 1, +i[3], 12) : new Date(s);
     return isNaN(d) ? null : d;
   }
 
@@ -164,6 +164,84 @@
     return r;
   }
 
+  /* ── Cronograma detallado (fase 2) ── */
+
+  function objetos(t) {
+    var enc = (t && t.enc) || [];
+    return ((t && t.filas) || []).map(function (f) { var o = {}; enc.forEach(function (k, i) { o[k] = f[i]; }); return o; });
+  }
+  function pasos(v) {
+    return texto(v).split(/\n+/).map(function (l) { return l.replace(/^\s*\d+[.)]\s*/, '').trim(); }).filter(String);
+  }
+  function estadoDe(o) {
+    var s = texto(o['Estado']).toLowerCase();
+    if (/^s/i.test(texto(o['¿Se hizo?'])) || /realiz|cerrad|hecho|complet/.test(s)) return 'Hecho';
+    if (/reprogram/.test(s) || texto(o['Nueva fecha (reprogramada)'])) return 'Reprogramado';
+    if (/vencid/.test(s)) return 'Vencido';
+    return 'Pendiente';
+  }
+  function par(lista, k, v) { v = texto(v); if (v && v !== '0') lista.push([k, v]); }
+  function horasTxt(h) { return h ? String(h).replace('.', ',') + ' h' : ''; }
+  function fechaLarga(d) {
+    return d ? ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][d.getDay()] + ' ' + d.getDate() + ' de ' + MESES[d.getMonth()].toLowerCase() + ' de ' + d.getFullYear() : '';
+  }
+
+  /** Respuesta de la acción «cronograma» → lista única de tareas de las dos sedes. */
+  function tareasCrono(r) {
+    var lista = [];
+    SEDES.forEach(function (nombreSede) {
+      var s = (r && r.sedes && r.sedes[nombreSede]) || {};
+      objetos(s.redes).forEach(function (o) {
+        var d = fecha(o['Fecha programada']), h = num(o['Duración (h)']), det = [], mat = [], tomas = [];
+        if (num(o['Tomas O2'])) tomas.push(num(o['Tomas O2']) + ' O2');
+        if (num(o['Tomas aire'])) tomas.push(num(o['Tomas aire']) + ' aire');
+        if (num(o['Tomas vacío'])) tomas.push(num(o['Tomas vacío']) + ' vacío');
+        Object.keys(o).forEach(function (k) { if (/^(manguera|racor|unión|union|t rápida)/i.test(k) && num(o[k])) mat.push(String(num(o[k])).replace('.', ',') + (/\(m\)$/.test(k) ? ' m de ' : ' × ') + k.replace(/\s*\(m\)$/, '').replace(/^./, function (c) { return c.toLowerCase(); })); });
+        par(det, 'Fecha programada', fechaLarga(d)); par(det, 'Lugar', [o['Piso'], o['Servicio'], o['Habitación / cubículo']].map(texto).filter(String).join(' · '));
+        par(det, 'Duración', horasTxt(h)); par(det, 'Tomas', tomas.join(' · ')); par(det, '¿Cambio de toma?', o['¿Cambio de toma?']); par(det, 'Material', mat.join(' · '));
+        par(det, 'Fecha de ejecución', fechaLarga(fecha(o['Fecha de ejecución']))); par(det, 'Nueva fecha', fechaLarga(fecha(o['Nueva fecha (reprogramada)'])));
+        par(det, 'Motivo de reprogramación', o['Motivo de reprogramación']); par(det, 'Observación', o['Justificación / observación']); par(det, 'Estado en la hoja', o['Estado']);
+        lista.push({ id: nombreSede + '|redes|' + texto(o['N°']), tipo: 'Redes', sede: nombreSede, fecha: d, semana: num(o['Semana del mes']), horas: h,
+          titulo: [o['Servicio'], o['Habitación / cubículo']].map(texto).filter(String).join(' · '), sub: [horasTxt(h), tomas.join(', ')].filter(String).join(' · '),
+          frente: 'Redes · ' + texto(o['Servicio']), actividad: texto(o['Actividad']), estado: estadoDe(o), detalle: det, pasos: pasos(o['Paso a paso para el técnico']), hoja: 'Detalle redes' });
+      });
+      objetos(s.plantas).forEach(function (o) {
+        var d = fecha(o['Fecha programada']), h = num(o['Duración (h)']), det = [];
+        par(det, 'Fecha programada', fechaLarga(d)); par(det, 'Horario', o['Horario']); par(det, 'Planta', o['Planta']); par(det, 'Equipo', [o['Equipo'], o['Marca / serie']].map(texto).filter(String).join(' · '));
+        par(det, 'Duración', horasTxt(h)); par(det, 'Frecuencia', o['Frecuencia']); par(det, 'Código', o['Código']);
+        par(det, 'Fecha de ejecución', fechaLarga(fecha(o['Fecha de ejecución']))); par(det, 'Nueva fecha', fechaLarga(fecha(o['Nueva fecha (reprogramada)'])));
+        par(det, 'Motivo de reprogramación', o['Motivo de reprogramación']); par(det, 'Observación', o['Justificación / observación']); par(det, 'Estado en la hoja', o['Estado']);
+        lista.push({ id: nombreSede + '|plantas|' + texto(o['N°']), tipo: 'Plantas', sede: nombreSede, fecha: d, semana: num(o['Semana del mes']), horas: h,
+          titulo: texto(o['Equipo']), sub: [texto(o['Tareas']), horasTxt(h)].filter(String).join(' · '),
+          frente: 'Plantas · ' + texto(o['Planta']).replace(/^planta de\s*/i, ''), actividad: texto(o['Tareas']), estado: estadoDe(o), detalle: det, pasos: pasos(o['Paso a paso para el técnico']), hoja: 'Detalle plantas' });
+      });
+      objetos(s.inspecciones).forEach(function (o) {
+        var desde = fecha(o['Desde']), hasta = fecha(o['Hasta']), prog = num(o['Días programados']), hechos = num(o['Días realizados']), h = num(o['Horas en la semana']), det = [];
+        var est = estadoDe(o); if (prog && hechos >= prog) est = 'Hecho';
+        par(det, 'Semana', desde && hasta ? 'Del ' + desde.getDate() + ' de ' + MESES[desde.getMonth()].toLowerCase() + ' al ' + hasta.getDate() + ' de ' + MESES[hasta.getMonth()].toLowerCase() : '');
+        par(det, 'Área / alcance', o['Área / alcance']); par(det, 'Frecuencia', o['Frecuencia']); par(det, 'Tiempo por vez', num(o['Tiempo por vez (min)']) ? num(o['Tiempo por vez (min)']) + ' min' : '');
+        par(det, 'Días', hechos + ' de ' + prog + ' realizados'); par(det, 'Observación', o['Justificación / observación']); par(det, 'Estado en la hoja', o['Estado']);
+        lista.push({ id: nombreSede + '|inspecciones|' + texto(o['N°']), tipo: 'Inspección', sede: nombreSede, fecha: null, desde: desde, hasta: hasta, semana: num(o['Semana del mes']), horas: h,
+          titulo: texto(o['Actividad']), sub: [texto(o['Frecuencia']), num(o['Tiempo por vez (min)']) ? num(o['Tiempo por vez (min)']) + ' min' : ''].filter(String).join(' · '),
+          frente: 'Inspecciones y rondas', actividad: texto(o['Actividad']), diasProg: prog, diasHechos: hechos, estado: est, detalle: det, pasos: pasos(o['Paso a paso para el técnico']), hoja: 'Detalle inspecciones' });
+      });
+      objetos(s.correctivos).forEach(function (o) {
+        if (!texto(o['N° de ticket']) && !texto(o['Fecha del ticket']) && !texto(o['Descripción de la falla'])) return;
+        var d = fecha(o['Fecha del ticket']), det = [], mat = [];
+        for (var i = 1; i <= 6; i++) if (texto(o['Material ' + i])) mat.push((num(o['Cant. ' + i]) || '') + ' ' + texto(o['Material ' + i]));
+        var cerrado = !!texto(o['Fecha de cierre']) || /cerr|realiz|soluc/i.test(texto(o['Estado']));
+        par(det, 'Fecha del ticket', fechaLarga(d)); par(det, 'Solicitado por', o['Solicitado por']); par(det, 'Lugar', [o['Piso'], o['Servicio'], o['Habitación / cubículo']].map(texto).filter(String).join(' · '));
+        par(det, 'Falla', o['Descripción de la falla']); par(det, 'Trabajo realizado', o['Trabajo realizado']); par(det, 'Material', mat.join(' · '));
+        par(det, 'Costo de materiales', num(o['Costo de materiales']) ? '$' + Math.round(num(o['Costo de materiales'])).toLocaleString('es-CO') : ''); par(det, 'Técnico', o['Técnico']);
+        par(det, 'Fecha de cierre', fechaLarga(fecha(o['Fecha de cierre']))); par(det, 'Observación', o['Observación']); par(det, 'Estado en la hoja', o['Estado']);
+        lista.push({ id: nombreSede + '|correctivos|' + texto(o['N°']), tipo: 'Correctivo', sede: nombreSede, fecha: d, semana: d ? Math.ceil((d.getDate() + new Date(d.getFullYear(), d.getMonth(), 1).getDay()) / 7) : 0, horas: 0,
+          titulo: ['Ticket ' + texto(o['N° de ticket']), texto(o['Servicio'])].filter(String).join(' · '), sub: texto(o['Descripción de la falla']),
+          frente: 'Correctivos (tickets)', actividad: texto(o['Descripción de la falla']) || 'Mantenimiento correctivo', estado: cerrado ? 'Hecho' : 'Pendiente', detalle: det, pasos: [], hoja: 'Mantenimientos correctivos' });
+      });
+    });
+    return lista;
+  }
+
   function preparar(paquete) {
     var f = (paquete && paquete.fuentes) || {};
     var cil = cilindros(f.cilindros);
@@ -193,5 +271,5 @@
     return Object.keys(s).map(Number).sort();
   }
 
-  raiz.Datos = { MESES: MESES, SEDES: SEDES, preparar: preparar, pasa: pasa, suma: suma, num: num, fecha: fecha, aniosDisponibles: aniosDisponibles };
+  raiz.Datos = { MESES: MESES, SEDES: SEDES, preparar: preparar, pasa: pasa, suma: suma, num: num, fecha: fecha, aniosDisponibles: aniosDisponibles, tareasCrono: tareasCrono };
 })(typeof window !== 'undefined' ? window : globalThis);

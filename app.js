@@ -60,7 +60,7 @@
     est.sesion = { token: r.token, vence: r.vence, usuario: r.usuario };
     ls.set('sesion', est.sesion); ls.set('ultimoUsuario', r.usuario.usuario);
   }
-  function cerrarLocal() { est.sesion = null; est.datos = null; ls.del('sesion'); ls.del('paquete'); est.vista = 'inicio'; }
+  function cerrarLocal() { est.sesion = null; est.datos = null; est.crono = null; ls.del('sesion'); ls.del('paquete'); est.vista = 'inicio'; }
 
   /* ───────── huella del celular (WebAuthn) ───────── */
   function hayHuella() { return !!(window.PublicKeyCredential && navigator.credentials); }
@@ -204,28 +204,178 @@
     return h;
   }
 
-  function vistaCronograma(d) {
-    var cro = fil(d.cronograma);
-    if (!cro.length) return '<section class="panel">' + vacio('El cronograma no tiene filas para ' + periodo() + '. Empieza en noviembre de 2026.') + '</section>';
-    function fila(nombre, l) {
-      var prog = D.suma(l, 'redesProg'), hechas = D.suma(l, 'redesHechas');
-      var cumpl = l.length === 1 && l[0].cumplimiento != null ? Math.round(l[0].cumplimiento) + ' %' : (pct(hechas, prog) != null ? pct(hechas, prog) + ' % de redes' : '—');
-      return [nombre, n1(D.suma(l, 'plantasHechas')) + ' de ' + n1(D.suma(l, 'plantasProg')), n1(D.suma(l, 'inspHechas')) + ' de ' + n1(D.suma(l, 'inspProg')), hechas + ' de ' + prog,
-        D.suma(l, 'ticketsCerrados') + ' de ' + D.suma(l, 'tickets'), pesos(D.suma(l, 'materiales')), '<b>' + cumpl + '</b>'];
+  /* ───────── Cronograma: semana y mes (fase 2, solo consulta) ───────── */
+  var DIAS_C = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  var PESTANAS = [['Todo', null], ['Redes', 'Redes'], ['Plantas', 'Plantas'], ['Inspecciones', 'Inspección'], ['Correctivos', 'Correctivo']];
+  var TONO = { Hecho: 'hecho', Vencido: 'vencido', Pendiente: 'pendiente', Reprogramado: 'reprog' };
+  function medio(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12); }
+  function masDias(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n, 12); }
+  function claveMes(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2); }
+  function inicioSemana(d) { return masDias(d, -d.getDay()); }   // domingo, igual que las hojas
+  function mismoDia(a, b) { return a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
+  function cr() {
+    if (!est.crono) est.crono = { vista: ls.get('cronoVista', 'semana'), ref: medio(new Date()), pestana: 'Todo', sel: null, dia: new Date().getDay(), meses: {}, errores: {}, pendientes: 0, aviso: '' };
+    return est.crono;
+  }
+  function mesesNecesarios() {
+    var c = cr();
+    if (c.vista === 'mes') return [claveMes(c.ref)];
+    var ini = inicioSemana(c.ref), a = claveMes(ini), b = claveMes(masDias(ini, 6));
+    return a === b ? [a] : [a, b];
+  }
+  function cargarCrono(forzar) {
+    var c = cr();
+    mesesNecesarios().forEach(function (k) {
+      if (c.meses[k] && !forzar) return;
+      if (c.meses[k] === undefined) c.meses[k] = null;
+      c.pendientes++;
+      api('cronograma', { mes: k }).then(function (r) { c.meses[k] = D.tareasCrono(r); c.errores[k] = Object.keys(r.errores || {}); c.aviso = ''; })
+        .catch(function (err) { c.aviso = navigator.onLine ? err.message : 'Sin conexión: el cronograma detallado necesita internet.'; if (!c.meses[k]) delete c.meses[k]; })
+        .then(function () { c.pendientes--; if (est.vista === 'cronograma') pintar(); });
+    });
+  }
+  function tareasCargadas() {
+    var c = cr(), vistas = {}, lista = [];
+    mesesNecesarios().forEach(function (k) { (c.meses[k] || []).forEach(function (t) { if (!vistas[t.id]) { vistas[t.id] = 1; lista.push(t); } }); });
+    return lista.filter(function (t) { return est.filtro.sede === 'Ambas' || t.sede === est.filtro.sede; });
+  }
+  function dePestana(l) {
+    var tipo = PESTANAS.filter(function (p) { return p[0] === cr().pestana; })[0][1];
+    return tipo ? l.filter(function (t) { return t.tipo === tipo; }) : l;
+  }
+  function chipTipo(t) { return '<span class="chip tipo-' + t.tipo.slice(0, 3).toLowerCase() + '">' + e(t.tipo === 'Inspección' ? 'Ronda' : t.tipo) + '</span>'; }
+  function chipEstado(t) { return '<span class="chip est-' + TONO[t.estado] + '">' + e(t.estado) + '</span>'; }
+  function botonTarea(t) {
+    return '<button type="button" class="tarea' + (cr().sel === t.id ? ' elegida' : '') + '" data-tarea="' + e(t.id) + '" aria-expanded="' + (cr().sel === t.id) + '">' +
+      '<span class="chips">' + chipTipo(t) + chipEstado(t) + (est.filtro.sede === 'Ambas' ? '<span class="chip nota">' + e(t.sede) + '</span>' : '') + '</span>' +
+      '<b>' + e(t.titulo) + '</b><span class="pie">' + e(t.sub) + '</span></button>';
+  }
+  function filtrosCrono() {
+    var c = cr(), ini = inicioSemana(c.ref), fin = masDias(ini, 6), f = est.filtro;
+    var rotulo = c.vista === 'mes' ? MESES[c.ref.getMonth()] + ' ' + c.ref.getFullYear()
+      : ini.getDate() + (ini.getMonth() !== fin.getMonth() ? ' de ' + MESES[ini.getMonth()].slice(0, 3).toLowerCase() : '') + ' al ' + fin.getDate() + ' de ' + MESES[fin.getMonth()].slice(0, 3).toLowerCase() + ' ' + fin.getFullYear();
+    return '<div class="filtros"><div class="segmento" role="group" aria-label="Sede">' +
+      ['Ambas'].concat(D.SEDES).map(function (s) { return '<button type="button" data-sede="' + s + '" aria-pressed="' + (f.sede === s) + '">' + (s === 'Ambas' ? 'Ambas sedes' : s) + '</button>'; }).join('') + '</div>' +
+      '<div class="segmento" role="group" aria-label="Vista"><button type="button" data-cvista="semana" aria-pressed="' + (c.vista === 'semana') + '">Semana</button><button type="button" data-cvista="mes" aria-pressed="' + (c.vista === 'mes') + '">Mes</button></div>' +
+      '<div class="segmento paso" role="group" aria-label="Periodo"><button type="button" data-cnav="-1" aria-label="' + (c.vista === 'mes' ? 'Mes anterior' : 'Semana anterior') + '">‹</button><span aria-live="polite">' + e(rotulo) + '</span>' +
+      '<button type="button" data-cnav="1" aria-label="' + (c.vista === 'mes' ? 'Mes siguiente' : 'Semana siguiente') + '">›</button><button type="button" data-cnav="0">Hoy</button></div></div>';
+  }
+  function pestanasCrono() {
+    return '<div class="pestanas" role="group" aria-label="Tipo de trabajo">' + PESTANAS.map(function (p) {
+      return '<button type="button" data-ctab="' + p[0] + '" aria-pressed="' + (cr().pestana === p[0]) + '">' + p[0] + '</button>'; }).join('') + '</div>';
+  }
+  function panelDetalle(todas) {
+    var t = todas.filter(function (x) { return x.id === cr().sel; })[0];
+    if (!t) return '';
+    return '<button type="button" class="velo" data-cerrar="1" aria-label="Cerrar detalle" tabindex="-1"></button><section class="panel detalle" id="detalle-tarea" role="dialog" aria-modal="false" aria-labelledby="detalle-titulo">' +
+      '<div class="detalle-cab"><span class="chips">' + chipTipo(t) + chipEstado(t) + '<span class="chip nota">' + e(t.sede) + '</span></span><button type="button" class="boton secundario mini" data-cerrar="1">Cerrar</button></div>' +
+      '<h2 id="detalle-titulo" tabindex="-1">' + e(t.actividad || t.titulo) + '</h2><p class="pie">' + e(t.titulo) + '</p>' +
+      '<dl class="datos">' + t.detalle.map(function (p) { return '<div><dt>' + e(p[0]) + '</dt><dd>' + e(p[1]) + '</dd></div>'; }).join('') + '</dl>' +
+      (t.pasos.length ? '<h3>Paso a paso para el técnico</h3><ol class="pasos">' + t.pasos.map(function (p) { return '<li>' + e(p) + '</li>'; }).join('') + '</ol>' : '') +
+      '<p class="pie">Solo consulta. Lo hecho se marca en la hoja «Cronograma ' + e(t.sede) + '», pestaña «' + e(t.hoja) + '».</p></section>';
+  }
+  function filaRonda(t) {
+    return '<button type="button" class="fila-ronda' + (cr().sel === t.id ? ' elegida' : '') + '" data-tarea="' + e(t.id) + '"><span><b>' + e(t.titulo) + '</b>' + (est.filtro.sede === 'Ambas' ? ' <span class="chip nota">' + e(t.sede) + '</span>' : '') +
+      '<br><span class="pie">' + e(t.sub) + '</span></span><span class="der">' + chipEstado(t) + '<br><b>' + t.diasHechos + ' de ' + t.diasProg + ' días</b></span></button>';
+  }
+  function vistaSemana(todas) {
+    var c = cr(), ini = inicioSemana(c.ref), fin = masDias(ini, 6), hoyD = medio(new Date());
+    var enSemana = todas.filter(function (t) {
+      var f = t.tipo === 'Inspección' ? t.desde : t.fecha;
+      return !!f && f >= ini && f <= fin;
+    });
+    var l = dePestana(enSemana), conFecha = l.filter(function (t) { return t.tipo !== 'Inspección'; }), rondas = l.filter(function (t) { return t.tipo === 'Inspección'; });
+    var hechos = l.filter(function (t) { return t.estado === 'Hecho'; }).length, vencidos = l.filter(function (t) { return t.estado === 'Vencido'; }).length;
+    function cuenta(tipo) { return l.filter(function (t) { return t.tipo === tipo; }).length; }
+    var h = '<div class="rejilla cuatro">' +
+      tarjeta('Programado esta semana', l.length, cuenta('Redes') + ' de redes · ' + cuenta('Plantas') + ' de plantas · ' + cuenta('Inspección') + (cuenta('Inspección') === 1 ? ' ronda' : ' rondas') + (cuenta('Correctivo') ? ' · ' + cuenta('Correctivo') + (cuenta('Correctivo') === 1 ? ' ticket' : ' tickets') : '')) +
+      tarjeta('Hecho', hechos + ' de ' + l.length, 'Según el estado de cada hoja') +
+      tarjeta('Vencido', vencidos, vencidos ? 'Con fecha pasada y sin marcar' : 'Nada atrasado', vencidos ? 'alerta' : '') +
+      tarjeta('Horas de trabajo', n1(D.suma(l, 'horas')) + ' h', 'Programadas en la semana') + '</div>';
+    if (c.pestana !== 'Inspecciones') {
+      h += '<section class="panel"><h2>Trabajos con fecha</h2><div class="dias-cel" role="group" aria-label="Día">';
+      for (var i = 0; i < 7; i++) { var dd = masDias(ini, i), nn = conFecha.filter(function (t) { return mismoDia(t.fecha, dd); }).length;
+        h += '<button type="button" data-cdia="' + i + '" aria-pressed="' + (c.dia === i) + '"><span>' + DIAS_C[i] + '</span><b>' + dd.getDate() + '</b>' + (nn ? '<i>' + nn + '</i>' : '') + '</button>'; }
+      h += '</div><div class="semana">';
+      for (i = 0; i < 7; i++) { var d = masDias(ini, i), delDia = conFecha.filter(function (t) { return mismoDia(t.fecha, d); });
+        h += '<div class="dia' + (c.dia === i ? ' activo' : '') + '"><span class="dia-cab' + (mismoDia(d, hoyD) ? ' hoy' : '') + '">' + DIAS_C[i] + ' ' + d.getDate() + (mismoDia(d, hoyD) ? ' · hoy' : '') + '</span>' +
+          (delDia.length ? delDia.map(botonTarea).join('') : '<span class="pie sin">Sin trabajos con fecha</span>') + '</div>'; }
+      h += '</div></section>';
     }
-    var filas = sedesVisibles().map(function (s) { return fila(s, cro.filter(function (r) { return r.sede === s; })); });
-    var h = '<section class="panel"><h2>Programado frente a hecho · ' + e(periodo()) + '</h2>' +
-      tablaSedes(['Sede', 'Plantas', 'Inspecciones (días)', 'Redes (cuartos)', 'Correctivos cerrados', 'Materiales', 'Cumplimiento'], filas, filas.length > 1 ? fila('Total', cro) : null) +
-      '<span class="pie">Hecho de programado. Sale del «Resumen general» de cada cronograma; el detalle semana a semana llega en la fase 2.</span></section>';
-    var claves = {};
-    cro.forEach(function (r) { claves[r.anio + '-' + ('0' + r.mes).slice(-2)] = 1; });
-    var lista = Object.keys(claves).sort();
-    var max = Math.max.apply(null, lista.map(function (k) { return D.suma(cro.filter(function (r) { return r.anio + '-' + ('0' + r.mes).slice(-2) === k; }), 'materiales'); }));
-    h += '<section class="panel"><h2>Materiales del preventivo por mes</h2>' + lista.slice(0, 38).map(function (k) {
-      var v = D.suma(cro.filter(function (r) { return r.anio + '-' + ('0' + r.mes).slice(-2) === k; }), 'materiales');
-      return barra(MESES[+k.slice(5) - 1] + ' ' + k.slice(0, 4), v, max, pesos(v));
-    }).join('') + '</section>';
+    var det = panelDetalle(todas);
+    h += '<div class="rejilla ' + (det ? 'dos' : '') + '">';
+    if (c.pestana === 'Todo' || c.pestana === 'Inspecciones') h += '<section class="panel"><h2>Inspecciones y rondas de la semana</h2>' + (rondas.length ? rondas.map(filaRonda).join('') : vacio('Sin rondas programadas esta semana.')) +
+      '<p class="pie">Días realizados frente a programados. Toca una fila para ver su paso a paso.</p></section>';
+    else h += '<span></span>';
+    h += det + '</div>';
     return h;
+  }
+  function vistaMes(todas, d) {
+    var c = cr(), anio = c.ref.getFullYear(), mes = c.ref.getMonth() + 1, k = claveMes(c.ref);
+    var res = d ? d.cronograma.filter(function (r) { return r.anio === anio && r.mes === mes && (est.filtro.sede === 'Ambas' || r.sede === est.filtro.sede); }) : [];
+    var delMes = dePestana(todas);
+    var cumpl = res.length === 1 && res[0].cumplimiento != null ? Math.round(res[0].cumplimiento) + ' %' : '—';
+    function hp(tipo) { var l = todas.filter(function (t) { return t.tipo === tipo; }); return l.filter(function (t) { return t.estado === 'Hecho'; }).length + ' de ' + l.length; }
+    var h = '<div class="rejilla cuatro">' + tarjeta('Cumplimiento del mes', cumpl, res.length === 1 ? 'Meta ≥ 95 % · según la hoja' : 'Elige una sede para verlo') +
+      tarjeta('Redes', hp('Redes'), 'Cuartos y cubículos hechos') + tarjeta('Plantas', hp('Plantas'), 'Mantenimientos hechos') +
+      tarjeta('Materiales del mes', pesos(D.suma(res, 'materiales')), 'Preventivo y correctivos') + '</div>';
+    var semanas = {}; delMes.forEach(function (t) { if (t.semana) semanas[t.semana] = 1; });
+    var cols = Object.keys(semanas).map(Number).sort(function (a, b) { return a - b; });
+    var frentes = [], vistos = {};
+    delMes.forEach(function (t) { var f = (est.filtro.sede === 'Ambas' ? t.sede + ' · ' : '') + t.frente; t._f = f; if (!vistos[f]) { vistos[f] = 1; frentes.push(f); } });
+    var orden = { Red: 0, Pla: 1, Ins: 2, Cor: 3 };
+    frentes.sort(function (a, b) { var ta = delMes.filter(function (t) { return t._f === a; })[0], tb = delMes.filter(function (t) { return t._f === b; })[0];
+      return (ta.sede < tb.sede ? -1 : ta.sede > tb.sede ? 1 : 0) || orden[ta.tipo.slice(0, 3)] - orden[tb.tipo.slice(0, 3)] || (a < b ? -1 : 1); });
+    function celda(l) {
+      if (!l.length) return '<span class="tenue">—</span>';
+      var insp = l[0].tipo === 'Inspección', prog = insp ? D.suma(l, 'diasProg') : l.length, hech = insp ? D.suma(l, 'diasHechos') : l.filter(function (t) { return t.estado === 'Hecho'; }).length;
+      var mal = l.some(function (t) { return t.estado === 'Vencido'; }), okk = prog > 0 && hech >= prog;
+      return '<span class="celda ' + (okk ? 'ok' : mal ? 'mal' : '') + '">' + hech + ' de ' + prog + '</span>';
+    }
+    h += '<section class="panel"><h2>Hecho frente a programado, por semana</h2>';
+    if (!delMes.length) h += vacio(c.meses[k] ? 'El cronograma no tiene trabajos en ' + MESES[mes - 1].toLowerCase() + ' de ' + anio + '. Empieza en noviembre de 2026.' : 'Leyendo el cronograma…');
+    else h += '<div class="tabla-caja"><table><thead><tr><th scope="col">Frente de trabajo</th>' + cols.map(function (s) { return '<th scope="col" class="centro"><button type="button" class="enlace" data-csem="' + s + '">Sem. ' + s + '</button></th>'; }).join('') + '<th scope="col" class="der">Mes</th></tr></thead><tbody>' +
+      frentes.map(function (f) { var l = delMes.filter(function (t) { return t._f === f; });
+        return '<tr><th scope="row">' + e(f) + '</th>' + cols.map(function (s) { return '<td class="centro">' + celda(l.filter(function (t) { return t.semana === s; })) + '</td>'; }).join('') + '<td class="der">' + celda(l) + '</td></tr>'; }).join('') +
+      '</tbody></table></div><p class="pie">Verde: completo. Rojo: con trabajos vencidos. Las rondas se cuentan en días. Toca «Sem.» para abrir esa semana.</p>';
+    h += '</section>';
+    var venc = delMes.filter(function (t) { return t.estado === 'Vencido'; }).sort(function (a, b) { return (a.fecha || a.desde) - (b.fecha || b.desde); });
+    var det = panelDetalle(todas);
+    h += '<div class="rejilla ' + (det ? 'dos' : '') + '"><section class="panel"><h2>Vencidos del mes</h2>' + (venc.length ? '<div class="lista-tareas">' + venc.map(function (t) {
+      var f = t.fecha || t.desde; return '<div class="con-fecha"><span class="pie">' + (f ? DIAS_C[f.getDay()] + ' ' + f.getDate() : '') + '</span>' + botonTarea(t) + '</div>'; }).join('') + '</div>' : vacio('Nada vencido en este mes.')) + '</section>' + det + '</div>';
+    return h;
+  }
+  function vistaCronograma(d) {
+    var c = cr(), cargando = mesesNecesarios().some(function (k) { return !c.meses[k]; });
+    var err = {}; mesesNecesarios().forEach(function (k) { (c.errores[k] || []).forEach(function (x) { err[x] = 1; }); });
+    var h = pestanasCrono();
+    if (c.aviso) h += '<p class="banda" role="status">' + e(c.aviso) + '</p>';
+    if (Object.keys(err).length) h += '<p class="banda" role="status">No pude leer: ' + e(Object.keys(err).join(', ')) + '.</p>';
+    if (cargando && c.pendientes) h += '<section class="panel">' + vacio('Leyendo el cronograma de las dos sedes…') + '</section>';
+    else h += c.vista === 'mes' ? vistaMes(tareasCargadas(), d) : vistaSemana(tareasCargadas());
+    return h;
+  }
+  function abrirTarea(id) {
+    var c = cr(); c.sel = c.sel === id ? null : id; pintar();
+    var p = document.getElementById('detalle-titulo');
+    if (p) { p.focus({ preventScroll: true }); if (window.innerWidth >= 1024) document.getElementById('detalle-tarea').scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }
+  }
+  function cerrarTarea() { var c = cr(), id = c.sel; if (!id) return; c.sel = null; pintar(); var b = document.querySelector('[data-tarea="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]'); if (b) b.focus(); }
+  function eventosCrono(b) {
+    var c = cr(), d = b.dataset;
+    if (d.cvista) { c.vista = d.cvista; ls.set('cronoVista', c.vista); c.sel = null; }
+    else if (d.cnav !== undefined) { var n = +d.cnav; c.sel = null;
+      if (!n) { c.ref = medio(new Date()); c.dia = c.ref.getDay(); }
+      else if (c.vista === 'mes') c.ref = new Date(c.ref.getFullYear(), c.ref.getMonth() + n, 1, 12);
+      else c.ref = masDias(c.ref, 7 * n); }
+    else if (d.ctab) { c.pestana = d.ctab; c.sel = null; }
+    else if (d.cdia !== undefined) c.dia = +d.cdia;
+    else if (d.csem) { var t = tareasCargadas().filter(function (x) { return x.semana === +d.csem && (x.fecha || x.desde) && claveMes(x.fecha || x.desde) === claveMes(c.ref); })[0];
+      if (t) { c.ref = medio(t.fecha || t.desde); c.dia = c.ref.getDay(); } c.vista = 'semana'; c.sel = null; }
+    else if (d.tarea) { abrirTarea(d.tarea); return true; }
+    else if (d.cerrar) { cerrarTarea(); return true; }
+    else return false;
+    pintar(); cargarCrono(); return true;
   }
 
   function vistaCostos(d) {
@@ -316,7 +466,7 @@
 
   function vistaProximas() {
     return '<section class="panel"><h2>Lo que sigue</h2><ul class="alertas">' + [
-      ['Fase 2', 'Cronograma de trabajo semana a semana: redes, plantas, inspecciones y correctivos, con registro y evidencia.'],
+      ['Más adelante', 'Marcar lo ejecutado del cronograma desde la app, con evidencia (hoy se marca en las hojas).'],
       ['Fase 3', 'Costos con facturas y órdenes de compra, y resultados de los KPI calculados cada mes.'],
       ['Fase 4', 'Cilindros, tanque, inventario y documentos, conectando las apps que ya existen.']
     ].map(function (x) { return '<li><span class="chip nota">' + x[0] + '</span><span>' + x[1] + '</span></li>'; }).join('') + '</ul></section>';
@@ -349,13 +499,14 @@
     if (est.vista === 'accesos') cuerpo = vistaAccesos();
     else if (est.vista === 'cuenta') cuerpo = vistaCuenta();
     else if (est.vista === 'proximas') cuerpo = vistaProximas();
+    else if (est.vista === 'cronograma') cuerpo = vistaCronograma(d);
     else if (!d) cuerpo = '<section class="panel">' + vacio(est.cargando ? 'Leyendo las hojas del departamento…' : 'Todavía no hay datos.') + '</section>';
     else cuerpo = { inicio: vistaInicio, cronograma: vistaCronograma, costos: vistaCostos }[est.vista](d);
     var errores = d ? Object.keys(d.errores) : [];
     $app.innerHTML = '<div class="armazon"><nav class="menu" aria-label="Secciones"><div class="marca-app"><b>Gases Medicinales</b><span>Clínica Reina Catalina</span></div>' +
       vistas.map(function (v) { return '<button type="button" data-vista="' + v[0] + '" aria-current="' + (est.vista === v[0] ? 'page' : 'false') + '">' + v[1] + '</button>'; }).join('') +
       '<span class="quien">' + e(u.nombre) + ' · ' + e(u.rol) + '</span></nav><main class="contenido"><header class="cabecera"><div><h1>' + e(vistas.filter(function (v) { return v[0] === est.vista; })[0][1]) + '</h1>' +
-      '<p class="pie">' + (d && d.leido ? 'Datos leídos ' + hora(d.leido) : '') + (est.cargando ? ' · actualizando…' : '') + '</p></div>' + (conFiltros ? filtros() : '') + '</header>' +
+      '<p class="pie">' + (d && d.leido ? 'Datos leídos ' + hora(d.leido) : '') + (est.cargando ? ' · actualizando…' : '') + '</p></div>' + (est.vista === 'cronograma' ? filtrosCrono() : conFiltros ? filtros() : '') + '</header>' +
       (est.aviso ? '<p class="banda" role="status">' + e(est.aviso) + '</p>' : '') +
       (errores.length && conFiltros ? '<p class="banda" role="status">No pude leer: ' + e(errores.join(', ')) + '. Revisa la pestaña Config de la hoja de la app.</p>' : '') + cuerpo + '</main></div>';
   }
@@ -386,8 +537,9 @@
 
   document.addEventListener('click', function (ev) {
     var b = ev.target.closest('button'); if (!b) return;
-    if (b.dataset.vista) { est.vista = b.dataset.vista; est.nuevo = null; pintar(); if (est.vista === 'accesos') cargarAccesos(); if (est.vista === 'cuenta') abrirCuenta(); window.scrollTo(0, 0); }
-    else if (b.dataset.sede) { est.filtro.sede = b.dataset.sede; ls.set('filtro', est.filtro); pintar(); }
+    if (b.dataset.vista) { est.vista = b.dataset.vista; est.nuevo = null; pintar(); if (est.vista === 'accesos') cargarAccesos(); if (est.vista === 'cuenta') abrirCuenta(); if (est.vista === 'cronograma') cargarCrono(); window.scrollTo(0, 0); }
+    else if (est.vista === 'cronograma' && est.sesion && eventosCrono(b)) { /* atendido */ }
+    else if (b.dataset.sede) { est.filtro.sede = b.dataset.sede; ls.set('filtro', est.filtro); if (est.crono) est.crono.sel = null; pintar(); }
     else if (b.dataset.modo) { est.ingreso = { modo: b.dataset.modo, error: '', ocupado: false }; pintar(); }
     else if (b.id === 'btn-entrar-huella') { ocupado(true); entrarConHuella().then(entrar).catch(function (err) { ocupado(false, mensajeHuella(err)); }); }
     else if (b.id === 'btn-huella') { registrarHuella().then(function () { abrirCuenta('Huella registrada. Ya puedes entrar con ella.'); }).catch(function (err) { document.getElementById('error-huella').textContent = mensajeHuella(err); }); }
@@ -397,6 +549,8 @@
       api('quitarAcceso', { id: b.dataset.quitar }).then(cargarAccesos).catch(function (err) { window.alert(err.message); });
     }
   });
+
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && est.vista === 'cronograma' && est.crono && est.crono.sel) cerrarTarea(); });
 
   document.addEventListener('change', function (ev) {
     var t = ev.target;
