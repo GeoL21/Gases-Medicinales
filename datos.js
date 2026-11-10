@@ -93,10 +93,29 @@
     return filas;
   }
 
-  function niveles(m) {
-    return (m || []).slice(1).filter(function (f) { return sede(f[0]); }).map(function (f) {
+  /** Resumen del libro de tanques, corregido con la lectura válida más reciente de «Lecturas» (el resumen a veces se atrasa). */
+  function niveles(m, lecturas) {
+    var lista = (m || []).slice(1).filter(function (f) { return sede(f[0]); }).map(function (f) {
       return { sede: sede(f[0]), nivel: num(f[1]), lleno: num(f[2]), lectura: fecha(f[3]) || texto(f[3]), baja7: num(f[4]), recarga: fecha(f[6]) || texto(f[6]) };
     });
+    var enc = ((lecturas || [])[0] || []).map(texto);
+    var iF = enc.indexOf('Fecha y hora'), iS = enc.indexOf('Sede'), iN = enc.indexOf('Nivel (pulg)'), iP = enc.indexOf('% lleno'), iL = enc.indexOf('Lectura'), iM = enc.indexOf('Movimiento');
+    if (iF < 0 || iS < 0 || iN < 0) return lista;
+    var ultima = {}, recarga = {};
+    (lecturas || []).slice(1).forEach(function (f) {
+      var s = sede(f[iS]), d = fecha(f[iF]);
+      if (!s || !d || texto(f[iN]) === '' || /descartad|reemplazad/i.test(texto(f[iL]))) return;
+      if (!ultima[s] || d > ultima[s].d) ultima[s] = { d: d, nivel: num(f[iN]), lleno: iP >= 0 ? num(f[iP]) : 0 };
+      if (iM >= 0 && /recarga/i.test(texto(f[iM])) && (!recarga[s] || d > recarga[s])) recarga[s] = d;
+    });
+    SEDES.forEach(function (s) {
+      if (!ultima[s]) return;
+      var r = lista.filter(function (x) { return x.sede === s; })[0];
+      if (!r) { r = { sede: s, nivel: 0, lleno: 0, lectura: null, baja7: 0, recarga: '' }; lista.push(r); }
+      if (!(r.lectura instanceof Date) || ultima[s].d > r.lectura) { r.nivel = ultima[s].nivel; r.lleno = ultima[s].lleno || r.lleno; r.lectura = ultima[s].d; }
+      if (recarga[s] && (!(r.recarga instanceof Date) || recarga[s] > r.recarga)) r.recarga = recarga[s];
+    });
+    return lista;
   }
 
   function presupuesto(m) {
@@ -248,7 +267,7 @@
     var anioBase = cil.length ? cil[0].anio : new Date().getFullYear();
     return {
       leido: paquete && paquete.leido, errores: (paquete && paquete.errores) || {},
-      cilindros: cil, autorizados: autorizados(f.autorizados), tanque: tanque(f.tanqueAnual, f.tanqueT3), niveles: niveles(f.tanqueNivel),
+      cilindros: cil, autorizados: autorizados(f.autorizados), tanque: tanque(f.tanqueAnual, f.tanqueT3), niveles: niveles(f.tanqueNivel, f.tanqueLecturas),
       presupuesto: presupuesto(f.presupuesto),
       cronograma: cronograma(f.cronoBquilla, 'Barranquilla').concat(cronograma(f.cronoBaranoa, 'Baranoa')),
       almacen: almacen(f.almacenBquilla, 'Barranquilla').concat(almacen(f.almacenBaranoa, 'Baranoa')),
