@@ -57,6 +57,7 @@
   }
 
   function guardarSesion(r) {
+    ultimaActividad = Date.now(); ls.set('actividad', ultimaActividad);
     est.sesion = { token: r.token, vence: r.vence, usuario: r.usuario };
     ls.set('sesion', est.sesion); ls.set('ultimoUsuario', r.usuario.usuario);
   }
@@ -458,8 +459,8 @@
     if (!hayHuella()) h += vacio('Este navegador no permite usar huella.');
     else if (ES_CELULAR) h += '<p class="pie">Registra la huella de este teléfono. Después entras con ella aquí y también en el PC, escaneando un código QR.</p><button type="button" class="boton" id="btn-huella">Registrar la huella de este celular</button>';
     else h += '<p class="pie">La huella se registra desde el celular: abre la app en el teléfono, entra con tu PIN y ve a «Mi cuenta». En el PC entras escaneando un código QR con ese mismo teléfono; no se usa la huella ni el PIN de Windows.</p>';
-    h += '<p class="error" role="alert" id="error-huella"></p><h3>Cambiar PIN</h3><form id="form-pin" class="formulario"><label>PIN actual<input name="pinActual" type="password" inputmode="numeric" autocomplete="current-password" required></label>' +
-      '<label>PIN nuevo (6 a 12 números)<input name="pinNuevo" type="password" inputmode="numeric" pattern="\\d{6,12}" autocomplete="new-password" required></label><button class="boton secundario" type="submit">Cambiar PIN</button><p class="error" role="alert" id="error-pin"></p></form>' +
+    h += '<p class="error" role="alert" id="error-huella"></p><h3>Cambiar PIN</h3><form id="form-pin" class="formulario"><label>PIN actual<input name="pinActual" type="text" class="pin" inputmode="numeric" autocomplete="off" data-lpignore="true" data-1p-ignore required></label>' +
+      '<label>PIN nuevo (6 a 12 números)<input name="pinNuevo" type="text" class="pin" inputmode="numeric" pattern="\\d{6,12}" autocomplete="off" data-lpignore="true" data-1p-ignore required></label><button class="boton secundario" type="submit">Cambiar PIN</button><p class="error" role="alert" id="error-pin"></p></form>' +
       (yaInstalada() ? '' : '<h3>Instalar</h3>' + bloqueInstalar()) + '<h3>Sesión</h3><button type="button" class="boton peligro" id="btn-salir">Cerrar sesión en este equipo</button></section>';
     return h;
   }
@@ -477,11 +478,11 @@
     var i = est.ingreso, cuerpo;
     if (!API) cuerpo = '<form id="form-api" class="formulario"><p class="pie">Pega la dirección de la implementación de Apps Script (termina en /exec).</p><label>Dirección del servidor<input name="api" type="url" required placeholder="https://script.google.com/macros/s/…/exec"></label><button class="boton" type="submit">Guardar</button></form>';
     else if (i.modo === 'instalar') cuerpo = '<form id="form-instalar" class="formulario"><p class="pie">Primera vez: crea tu usuario de administrador.</p><label>Clave de instalación<input name="clave" required autocomplete="off" autocapitalize="characters"></label><label>Tu nombre<input name="nombre" required maxlength="60"></label>' +
-      '<label>Usuario para entrar<input name="usuario" required pattern="[a-z0-9._\\-]{3,20}" autocapitalize="none" placeholder="por ejemplo: jorge"></label><label>PIN de 6 a 12 números<input name="pin" type="password" inputmode="numeric" pattern="\\d{6,12}" required autocomplete="new-password"></label><button class="boton" type="submit">Crear administrador</button></form>';
+      '<label>Usuario para entrar<input name="usuario" required pattern="[a-z0-9._\\-]{3,20}" autocapitalize="none" placeholder="por ejemplo: jorge"></label><label>PIN de 6 a 12 números<input name="pin" type="text" class="pin" inputmode="numeric" pattern="\\d{6,12}" required autocomplete="off" data-lpignore="true" data-1p-ignore></label><button class="boton" type="submit">Crear administrador</button></form>';
     else if (i.modo === 'invitacion' && !ES_CELULAR) cuerpo = '<p class="pie">La invitación se usa en el celular, porque allí queda registrada la huella. Abre esta misma dirección en tu teléfono.</p><button type="button" class="enlace" data-modo="entrar">Volver</button>';
     else if (i.modo === 'invitacion') cuerpo = '<form id="form-invitacion" class="formulario"><p class="pie">Escribe el código que te dio el administrador. Luego registras la huella de este celular.</p><label>Código de invitación<input name="codigo" required maxlength="8" autocapitalize="characters" autocomplete="off"></label><button class="boton" type="submit">Continuar</button><button type="button" class="enlace" data-modo="entrar">Volver</button></form>';
     else cuerpo = (hayHuella() ? '<button type="button" class="boton" id="btn-entrar-huella">' + (ES_CELULAR ? 'Entrar con huella' : 'Entrar con la huella del celular') + '</button>' + (ES_CELULAR ? '' : '<p class="pie centro">Aparece un código QR: escanéalo con el teléfono donde registraste tu huella.</p>') + '<div class="separador"><span>o con PIN</span></div>' : '') +
-      '<form id="form-pin-ingreso" class="formulario"><label>Usuario (el corto que creaste, no tu nombre)<input name="usuario" required autocapitalize="none" autocomplete="username" placeholder="por ejemplo: jorge" value="' + e(ls.get('ultimoUsuario', '')) + '"></label><label>PIN<input name="pin" type="password" inputmode="numeric" required autocomplete="current-password"></label><button class="boton secundario" type="submit">Entrar con PIN</button></form>' +
+      '<form id="form-pin-ingreso" class="formulario"><label>Usuario (el corto que creaste, no tu nombre)<input name="usuario" required autocapitalize="none" autocomplete="username" placeholder="por ejemplo: jorge" value="' + e(ls.get('ultimoUsuario', '')) + '"></label><label>PIN<input name="pin" type="text" class="pin" inputmode="numeric" required autocomplete="off" data-lpignore="true" data-1p-ignore></label><button class="boton secundario" type="submit">Entrar con PIN</button></form>' +
       '<button type="button" class="enlace" data-modo="invitacion">Tengo una invitación</button>';
     return '<main class="ingreso"><div class="icono-app" aria-hidden="true"><svg viewBox="0 0 24 24" width="52" height="52" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="8" height="13" rx="3"/><path d="M7 8V6h4v2M9 4v2"/><circle cx="17.5" cy="7.5" r="3.5"/><path d="M17.5 7.5l1.4-1.4"/></svg></div>' +
       '<h1>Gases Medicinales</h1><p class="pie centro">Clínica Reina Catalina · Barranquilla y Baranoa</p><div class="panel">' + cuerpo + '<p class="error" role="alert">' + e(i.error) + '</p>' + (i.ocupado ? '<p class="pie centro">Un momento…</p>' : '') + '</div>' + bloqueInstalar() + '</main>';
@@ -552,6 +553,19 @@
 
   document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && est.vista === 'cronograma' && est.crono && est.crono.sel) cerrarTarea(); });
 
+  /* Cierre por inactividad: 10 min en PC, 30 min en celular. */
+  var MIN_INACTIVO = ES_CELULAR ? 30 : 10, ultimaActividad = ls.get('actividad', Date.now());
+  ['pointerdown', 'keydown', 'scroll', 'touchstart'].forEach(function (t) { window.addEventListener(t, function () { ultimaActividad = Date.now(); ls.set('actividad', ultimaActividad); }, { passive: true, capture: true }); });
+  function revisarInactividad() {
+    if (!est.sesion) return;
+    var ultima = Math.max(ultimaActividad, ls.get('actividad', 0));
+    if (Date.now() - ultima < MIN_INACTIVO * 60000) return;
+    api('salir').catch(function () {});
+    cerrarLocal(); est.ingreso = { modo: 'entrar', error: 'La sesión se cerró por ' + MIN_INACTIVO + ' minutos sin uso.', ocupado: false }; pintar();
+  }
+  setInterval(revisarInactividad, 30000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) revisarInactividad(); });
+
   document.addEventListener('change', function (ev) {
     var t = ev.target;
     if (t.id === 'f-mes') { est.filtro.mes = +t.value; ls.set('filtro', est.filtro); pintar(); }
@@ -567,6 +581,7 @@
   function iniciar() {
     pintar();
     if (!API) return;
+    revisarInactividad();
     if (est.sesion) { cargarDatos(); return; }
     api('estado').then(function (r) { if (!r.configurado) { est.ingreso.modo = 'instalar'; pintar(); } }).catch(function (err) { est.ingreso.error = navigator.onLine ? err.message : 'Sin conexión.'; pintar(); });
   }

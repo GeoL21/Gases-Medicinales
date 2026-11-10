@@ -41,6 +41,7 @@ button, input, select { font: inherit; color: inherit; }
 .separador::before, .separador::after { content: ''; flex: 1; height: 1px; background: var(--borde); }
 
 /* Formularios */
+input.pin { -webkit-text-security: disc; letter-spacing: 0.12em; }
 .formulario { display: flex; flex-direction: column; gap: 12px; max-width: 460px; }
 .formulario label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 14px; }
 .formulario input:not([type=radio]), .campo-mini select { min-height: 48px; padding: 0 12px; border: 1px solid #B9ABB1; border-radius: 10px; background: #fff; font-weight: 500; }
