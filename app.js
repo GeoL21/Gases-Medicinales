@@ -47,8 +47,10 @@
   function api(accion, datos) {
     if (!API) return Promise.reject(new Error('Falta la dirección del servidor.'));
     var cuerpo = Object.assign({ accion: accion, token: est.sesion && est.sesion.token }, datos || {});
-    return fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(cuerpo) })
-      .then(function (r) { if (!r.ok) throw new Error('El servidor respondió ' + r.status); return r.json(); })
+    var corte = window.AbortController ? new AbortController() : null, reloj = corte && setTimeout(function () { corte.abort(); }, 150000);
+    return fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(cuerpo), signal: corte ? corte.signal : undefined })
+      .catch(function (err) { throw new Error(err && err.name === 'AbortError' ? 'El servidor tardó más de dos minutos. Vuelve a intentarlo.' : navigator.onLine ? 'No se pudo conectar con el servidor.' : 'Sin conexión.'); })
+      .then(function (r) { clearTimeout(reloj); if (!r.ok) throw new Error('El servidor respondió ' + r.status); return r.json(); })
       .then(function (r) {
         if (r && r.sesion === false) { cerrarLocal(); pintar(); }
         if (!r || !r.ok) throw new Error((r && r.error) || 'No se pudo completar.');
@@ -501,13 +503,13 @@
     else if (est.vista === 'cuenta') cuerpo = vistaCuenta();
     else if (est.vista === 'proximas') cuerpo = vistaProximas();
     else if (est.vista === 'cronograma') cuerpo = vistaCronograma(d);
-    else if (!d) cuerpo = '<section class="panel">' + vacio(est.cargando ? 'Leyendo las hojas del departamento…' : 'Todavía no hay datos.') + '</section>';
+    else if (!d) cuerpo = '<section class="panel">' + vacio(est.cargando ? 'Leyendo las hojas del departamento… La primera vez puede tardar hasta un minuto.' : 'Todavía no hay datos.') + (est.cargando ? '' : '<button type="button" class="boton secundario" data-recargar="1">Volver a leer</button>') + '</section>';
     else cuerpo = { inicio: vistaInicio, cronograma: vistaCronograma, costos: vistaCostos }[est.vista](d);
     var errores = d ? Object.keys(d.errores) : [];
     $app.innerHTML = '<div class="armazon"><nav class="menu" aria-label="Secciones"><div class="marca-app"><b>Gases Medicinales</b><span>Clínica Reina Catalina</span></div>' +
       vistas.map(function (v) { return '<button type="button" data-vista="' + v[0] + '" aria-current="' + (est.vista === v[0] ? 'page' : 'false') + '">' + v[1] + '</button>'; }).join('') +
       '<span class="quien">' + e(u.nombre) + ' · ' + e(u.rol) + '</span></nav><main class="contenido"><header class="cabecera"><div><h1>' + e(vistas.filter(function (v) { return v[0] === est.vista; })[0][1]) + '</h1>' +
-      '<p class="pie">' + (d && d.leido ? 'Datos leídos ' + hora(d.leido) : '') + (est.cargando ? ' · actualizando…' : '') + '</p></div>' + (est.vista === 'cronograma' ? filtrosCrono() : conFiltros ? filtros() : '') + '</header>' +
+      '<p class="pie">' + (d && d.leido ? 'Datos leídos ' + hora(d.leido) : '') + (est.cargando ? ' · actualizando…' : ' <button type="button" class="enlace" data-recargar="1">Actualizar</button>') + '</p></div>' + (est.vista === 'cronograma' ? filtrosCrono() : conFiltros ? filtros() : '') + '</header>' +
       (est.aviso ? '<p class="banda" role="status">' + e(est.aviso) + '</p>' : '') +
       (errores.length && conFiltros ? '<p class="banda" role="status">No pude leer: ' + e(errores.join(', ')) + '. Revisa la pestaña Config de la hoja de la app.</p>' : '') + cuerpo + '</main></div>';
   }
@@ -540,6 +542,7 @@
     var b = ev.target.closest('button'); if (!b) return;
     if (b.dataset.vista) { est.vista = b.dataset.vista; est.nuevo = null; pintar(); if (est.vista === 'accesos') cargarAccesos(); if (est.vista === 'cuenta') abrirCuenta(); if (est.vista === 'cronograma') cargarCrono(); window.scrollTo(0, 0); }
     else if (est.vista === 'cronograma' && est.sesion && eventosCrono(b)) { /* atendido */ }
+    else if (b.dataset.recargar) { if (est.vista === 'cronograma') cargarCrono(true); cargarDatos(); }
     else if (b.dataset.sede) { est.filtro.sede = b.dataset.sede; ls.set('filtro', est.filtro); if (est.crono) est.crono.sel = null; pintar(); }
     else if (b.dataset.modo) { est.ingreso = { modo: b.dataset.modo, error: '', ocupado: false }; pintar(); }
     else if (b.id === 'btn-entrar-huella') { ocupado(true); entrarConHuella().then(entrar).catch(function (err) { ocupado(false, mensajeHuella(err)); }); }
