@@ -289,6 +289,18 @@
     return h + '</section>';
   }
 
+
+  /* Instalar la app (Chrome y Edge entregan el aviso; en otros navegadores se explica cómo). */
+  var avisoInstalar = null;
+  function yaInstalada() { return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; }
+  function bloqueInstalar() {
+    if (yaInstalada()) return '';
+    if (avisoInstalar) return '<button type="button" class="boton secundario" id="btn-instalar">Instalar la app</button>';
+    return '<p class="pie centro">Para instalarla: abre el menú del navegador (⋮) y elige «' + (ES_CELULAR ? 'Agregar a pantalla principal' : 'Transmitir, guardar y compartir → Instalar página como aplicación') + '».</p>';
+  }
+  window.addEventListener('beforeinstallprompt', function (ev) { ev.preventDefault(); avisoInstalar = ev; pintar(); });
+  window.addEventListener('appinstalled', function () { avisoInstalar = null; pintar(); });
+
   function vistaCuenta() {
     var c = est.cuenta, u = est.sesion.usuario;
     var h = '<section class="panel"><h2>' + e(u.nombre) + '</h2><p class="pie">Usuario «' + e(u.usuario) + '» · ' + e(u.rol) + (c ? ' · ' + c.huellas + ' huella(s) registrada(s)' : '') + '</p>';
@@ -298,7 +310,7 @@
     else h += '<p class="pie">La huella se registra desde el celular: abre la app en el teléfono, entra con tu PIN y ve a «Mi cuenta». En el PC entras escaneando un código QR con ese mismo teléfono; no se usa la huella ni el PIN de Windows.</p>';
     h += '<p class="error" role="alert" id="error-huella"></p><h3>Cambiar PIN</h3><form id="form-pin" class="formulario"><label>PIN actual<input name="pinActual" type="password" inputmode="numeric" autocomplete="current-password" required></label>' +
       '<label>PIN nuevo (6 a 12 números)<input name="pinNuevo" type="password" inputmode="numeric" pattern="\\d{6,12}" autocomplete="new-password" required></label><button class="boton secundario" type="submit">Cambiar PIN</button><p class="error" role="alert" id="error-pin"></p></form>' +
-      '<h3>Sesión</h3><button type="button" class="boton peligro" id="btn-salir">Cerrar sesión en este equipo</button></section>';
+      (yaInstalada() ? '' : '<h3>Instalar</h3>' + bloqueInstalar()) + '<h3>Sesión</h3><button type="button" class="boton peligro" id="btn-salir">Cerrar sesión en este equipo</button></section>';
     return h;
   }
 
@@ -322,7 +334,7 @@
       '<form id="form-pin-ingreso" class="formulario"><label>Usuario (el corto que creaste, no tu nombre)<input name="usuario" required autocapitalize="none" autocomplete="username" placeholder="por ejemplo: jorge" value="' + e(ls.get('ultimoUsuario', '')) + '"></label><label>PIN<input name="pin" type="password" inputmode="numeric" required autocomplete="current-password"></label><button class="boton secundario" type="submit">Entrar con PIN</button></form>' +
       '<button type="button" class="enlace" data-modo="invitacion">Tengo una invitación</button>';
     return '<main class="ingreso"><div class="icono-app" aria-hidden="true"><svg viewBox="0 0 24 24" width="52" height="52" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="8" height="13" rx="3"/><path d="M7 8V6h4v2M9 4v2"/><circle cx="17.5" cy="7.5" r="3.5"/><path d="M17.5 7.5l1.4-1.4"/></svg></div>' +
-      '<h1>Gases Medicinales</h1><p class="pie centro">Clínica Reina Catalina · Barranquilla y Baranoa</p><div class="panel">' + cuerpo + '<p class="error" role="alert">' + e(i.error) + '</p>' + (i.ocupado ? '<p class="pie centro">Un momento…</p>' : '') + '</div></main>';
+      '<h1>Gases Medicinales</h1><p class="pie centro">Clínica Reina Catalina · Barranquilla y Baranoa</p><div class="panel">' + cuerpo + '<p class="error" role="alert">' + e(i.error) + '</p>' + (i.ocupado ? '<p class="pie centro">Un momento…</p>' : '') + '</div>' + bloqueInstalar() + '</main>';
   }
 
   /* ───────── armazón ───────── */
@@ -379,6 +391,7 @@
     else if (b.dataset.modo) { est.ingreso = { modo: b.dataset.modo, error: '', ocupado: false }; pintar(); }
     else if (b.id === 'btn-entrar-huella') { ocupado(true); entrarConHuella().then(entrar).catch(function (err) { ocupado(false, mensajeHuella(err)); }); }
     else if (b.id === 'btn-huella') { registrarHuella().then(function () { abrirCuenta('Huella registrada. Ya puedes entrar con ella.'); }).catch(function (err) { document.getElementById('error-huella').textContent = mensajeHuella(err); }); }
+    else if (b.id === 'btn-instalar') { if (avisoInstalar) { avisoInstalar.prompt(); avisoInstalar.userChoice.then(function () { avisoInstalar = null; pintar(); }); } }
     else if (b.id === 'btn-salir') { api('salir').catch(function () {}).then(function () { cerrarLocal(); pintar(); }); }
     else if (b.dataset.quitar && window.confirm('¿Quitar el acceso de ' + b.dataset.nombre + '? No podrá volver a entrar.')) {
       api('quitarAcceso', { id: b.dataset.quitar }).then(cargarAccesos).catch(function (err) { window.alert(err.message); });
