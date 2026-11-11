@@ -8,6 +8,7 @@
   --curva: cubic-bezier(0.23, 1, 0.32, 1);
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--fondo); color: var(--texto); font: 15px/1.45 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; }
 h1, h2, h3, p { margin: 0; }
@@ -173,6 +174,7 @@ thead .enlace { min-height: 44px; font-size: 12px; text-transform: uppercase; le
 @keyframes subir { from { transform: translateY(24px); opacity: 0; } }
 
 /* Costos y KPI (fase 3) */
+.acciones { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .avance { display: inline-flex; align-items: center; gap: 10px; justify-content: flex-end; }
 .avance .barra-fondo { display: block; width: 150px; }
 .avance .barra-relleno { display: block; }
@@ -221,6 +223,9 @@ thead .enlace { min-height: 44px; font-size: 12px; text-transform: uppercase; le
   .apilar.rubros .avance { display: flex; width: 100%; } .apilar.rubros .avance .barra-fondo { flex: 1; width: auto; }
   .apilar tr.total { border-top: 2px solid var(--borde); }
   .buscar { margin-left: 0; flex: 1; } .buscar input { width: 100%; }
+  .apilar.accesos th { grid-area: 1 / 1 / 1 / 3; } .apilar.accesos td:nth-child(2) { grid-area: 2 / 1; color: var(--tenue); }
+  .apilar.accesos td:nth-child(3) { grid-area: 2 / 2; text-align: right; color: var(--tenue); } .apilar.accesos td:nth-child(4) { grid-area: 3 / 1 / 3 / 3; }
+  .apilar.accesos td:nth-child(5) { grid-area: 4 / 1 / 4 / 3; } .apilar.accesos .acciones { justify-content: flex-start; }
 }
 
 /* Tablet */

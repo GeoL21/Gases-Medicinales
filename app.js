@@ -552,8 +552,9 @@
     else h += tablaSedes(['Nombre', 'Usuario', 'Tipo', 'Entra con', ''], a.map(function (u) {
       var con = [].concat(u.tienePin ? ['PIN'] : [], u.huellas.length ? ['huella (' + u.huellas.map(e).join(', ') + ')'] : []);
       return [e(u.nombre), e(u.usuario), e(u.rol), con.join(' y ') || '<span class="tenue">Invitación sin usar</span>',
-        u.id === est.sesion.usuario.id ? '<span class="tenue">Tú</span>' : '<button type="button" class="boton peligro mini" data-quitar="' + e(u.id) + '" data-nombre="' + e(u.nombre) + '">Quitar acceso</button>'];
+        u.id === est.sesion.usuario.id ? '<span class="tenue">Tú</span>' : '<span class="acciones"><button type="button" class="boton secundario mini" data-reinvitar="' + e(u.id) + '">Nueva invitación</button><button type="button" class="boton peligro mini" data-quitar="' + e(u.id) + '" data-nombre="' + e(u.nombre) + '">Quitar acceso</button></span>'];
     }));
+    h = h.replace('<table>', '<table class="apilar accesos">');
     h += '</section><section class="panel"><h2>Dar acceso a alguien</h2><p class="pie">Quien reciba acceso puede consultar todo, pero no administra accesos.</p>' +
       '<form id="form-acceso" class="formulario"><label>Nombre completo<input name="nombre" required maxlength="60" autocomplete="off"></label>' +
       '<label>Usuario para entrar<input name="usuario" required pattern="[a-z0-9._\\-]{3,20}" maxlength="20" autocapitalize="none" autocomplete="off" placeholder="por ejemplo: jefatura"></label>' +
@@ -562,7 +563,7 @@
       '<label id="campo-pin" hidden>PIN de 6 a 12 números<input name="pin" inputmode="numeric" pattern="\\d{6,12}" maxlength="12" autocomplete="off"></label>' +
       '<label>WhatsApp de la persona (opcional)<input name="whatsapp" type="tel" inputmode="tel" maxlength="20" autocomplete="off" placeholder="por ejemplo: 300 123 4567"></label>' +
       '<button class="boton" type="submit">Crear acceso</button><p class="error" role="alert" id="error-acceso"></p></form>';
-    if (nv) h += '<div class="resultado" role="status"><b>Acceso creado para ' + e(nv.usuario.nombre) + '.</b>' + (nv.codigo ? '<span>Código de invitación: <code>' + e(nv.codigo) + '</code> · vale ' + nv.horas + ' horas y se usa una sola vez.</span><span>Esa persona abre la app en su celular, toca «Tengo una invitación», escribe el código y registra su huella.</span>' : '<span>Ya puede entrar con el usuario «' + e(nv.usuario.usuario) + '» y el PIN que definiste.</span>') +
+    if (nv) h += '<div class="resultado" role="status"><b>' + (nv.codigo && !nv.nuevoAcceso ? 'Invitación para ' : 'Acceso creado para ') + e(nv.usuario.nombre) + '.</b>' + (nv.codigo ? '<span>Código de invitación: <code>' + e(nv.codigo) + '</code> · vale ' + nv.horas + ' horas y se usa una sola vez.</span><span>Esa persona abre la app en su celular, toca «Tengo una invitación», escribe el código y registra su huella.</span>' : '<span>Ya puede entrar con el usuario «' + e(nv.usuario.usuario) + '» y el PIN que definiste.</span>') +
       '<a class="boton whatsapp" target="_blank" rel="noopener" href="' + e(enlaceWhatsApp(nv)) + '">Enviar por WhatsApp</a>' + (nv.codigo ? '' : '<span class="pie">El mensaje no incluye el PIN: dáselo aparte.</span>') + '</div>';
     return h + '</section>';
   }
@@ -656,7 +657,7 @@
         .catch(function (err) { if (est.sesion) { est.vista = 'cuenta'; est.ingreso.ocupado = false; pintar(); cargarDatos(true); abrirCuenta(mensajeHuella(err)); } else ocupado(false, mensajeHuella(err)); });
     }
     else if (f.id === 'form-acceso') {
-      api('crearAcceso', c).then(function (r) { r.tel = c.whatsapp || ''; est.nuevo = r; return cargarAccesos(); }).catch(function (err) { document.getElementById('error-acceso').textContent = err.message; });
+      api('crearAcceso', c).then(function (r) { r.tel = c.whatsapp || ''; r.nuevoAcceso = true; est.nuevo = r; return cargarAccesos(); }).catch(function (err) { document.getElementById('error-acceso').textContent = err.message; });
     }
     else if (f.id === 'form-pin') {
       api('cambiarPin', c).then(function () { f.reset(); document.getElementById('error-pin').textContent = 'PIN cambiado.'; }).catch(function (err) { document.getElementById('error-pin').textContent = err.message; });
@@ -669,6 +670,12 @@
     else if (est.vista === 'cronograma' && est.sesion && eventosCrono(b)) { /* atendido */ }
     else if (b.dataset.mes !== undefined) { est.filtro.mes = +b.dataset.mes; ls.set('filtro', est.filtro); pintar(); }
     else if (b.dataset.docs) { est.docs = { filtro: b.dataset.docs }; pintar(); }
+    else if (b.dataset.reinvitar) {
+      var tel = (est.accesos || []).filter(function (u) { return u.id === b.dataset.reinvitar; })[0];
+      b.disabled = true;
+      api('nuevaInvitacion', { id: b.dataset.reinvitar }).then(function (r) { r.tel = ''; est.nuevo = r; pintar(); var x = document.querySelector('.resultado'); if (x) x.scrollIntoView({ block: 'center' }); })
+        .catch(function (err) { b.disabled = false; alert(err.message); });
+    }
     else if (b.dataset.recargar) { if (est.vista === 'cronograma') cargarCrono(true); cargarDatos(); }
     else if (b.dataset.sede) { est.filtro.sede = b.dataset.sede; ls.set('filtro', est.filtro); if (est.crono) est.crono.sel = null; pintar(); }
     else if (b.dataset.modo) { est.ingreso = { modo: b.dataset.modo, error: '', ocupado: false }; pintar(); }
