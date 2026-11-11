@@ -534,6 +534,17 @@
     return h;
   }
 
+  /** Enlace de WhatsApp con el mensaje de invitación. Sin número, WhatsApp deja elegir el contacto. */
+  function enlaceWhatsApp(nv) {
+    var base = location.origin + location.pathname, tel = String(nv.tel || '').replace(/\D/g, '');
+    if (tel.length === 10 && tel.charAt(0) === '3') tel = '57' + tel;
+    var nombre = String(nv.usuario.nombre).split(' ')[0];
+    var texto = nv.codigo
+      ? 'Hola, ' + nombre + '. Te di acceso a la app Gases Medicinales de la Clínica Reina Catalina.\n\n1. Abre este enlace en tu celular:\n' + base + '?invitacion=' + nv.codigo + '\n2. Toca «Continuar» y registra tu huella.\n\nTu código es ' + nv.codigo + '. Vale ' + nv.horas + ' horas y se usa una sola vez.'
+      : 'Hola, ' + nombre + '. Te di acceso a la app Gases Medicinales de la Clínica Reina Catalina.\n\nÁbrela aquí:\n' + base + '\n\nTu usuario es «' + nv.usuario.usuario + '». El PIN te lo doy aparte.';
+    return 'https://wa.me/' + tel + '?text=' + encodeURIComponent(texto);
+  }
+
   function vistaAccesos() {
     var a = est.accesos, nv = est.nuevo;
     var h = '<section class="panel"><h2>Quién puede entrar</h2>';
@@ -549,8 +560,10 @@
       '<fieldset><legend>¿Cómo va a entrar?</legend><label class="opcion"><input type="radio" name="metodo" value="huella" checked> Con la huella de su celular (recibe un código de invitación)</label>' +
       '<label class="opcion"><input type="radio" name="metodo" value="pin"> Con un PIN que tú le das</label></fieldset>' +
       '<label id="campo-pin" hidden>PIN de 6 a 12 números<input name="pin" inputmode="numeric" pattern="\\d{6,12}" maxlength="12" autocomplete="off"></label>' +
+      '<label>WhatsApp de la persona (opcional)<input name="whatsapp" type="tel" inputmode="tel" maxlength="20" autocomplete="off" placeholder="por ejemplo: 300 123 4567"></label>' +
       '<button class="boton" type="submit">Crear acceso</button><p class="error" role="alert" id="error-acceso"></p></form>';
-    if (nv) h += '<div class="resultado" role="status"><b>Acceso creado para ' + e(nv.usuario.nombre) + '.</b>' + (nv.codigo ? '<span>Código de invitación: <code>' + e(nv.codigo) + '</code> · vale ' + nv.horas + ' horas y se usa una sola vez.</span><span>Esa persona abre la app en su celular, toca «Tengo una invitación», escribe el código y registra su huella.</span>' : '<span>Ya puede entrar con el usuario «' + e(nv.usuario.usuario) + '» y el PIN que definiste.</span>') + '</div>';
+    if (nv) h += '<div class="resultado" role="status"><b>Acceso creado para ' + e(nv.usuario.nombre) + '.</b>' + (nv.codigo ? '<span>Código de invitación: <code>' + e(nv.codigo) + '</code> · vale ' + nv.horas + ' horas y se usa una sola vez.</span><span>Esa persona abre la app en su celular, toca «Tengo una invitación», escribe el código y registra su huella.</span>' : '<span>Ya puede entrar con el usuario «' + e(nv.usuario.usuario) + '» y el PIN que definiste.</span>') +
+      '<a class="boton whatsapp" target="_blank" rel="noopener" href="' + e(enlaceWhatsApp(nv)) + '">Enviar por WhatsApp</a>' + (nv.codigo ? '' : '<span class="pie">El mensaje no incluye el PIN: dáselo aparte.</span>') + '</div>';
     return h + '</section>';
   }
 
@@ -594,7 +607,7 @@
     else if (i.modo === 'instalar') cuerpo = '<form id="form-instalar" class="formulario"><p class="pie">Primera vez: crea tu usuario de administrador.</p><label>Clave de instalación<input name="clave" required autocomplete="off" autocapitalize="characters"></label><label>Tu nombre<input name="nombre" required maxlength="60"></label>' +
       '<label>Usuario para entrar<input name="usuario" required pattern="[a-z0-9._\\-]{3,20}" autocapitalize="none" placeholder="por ejemplo: jorge"></label><label>PIN de 6 a 12 números<input name="pin" type="text" class="pin" inputmode="numeric" pattern="\\d{6,12}" required autocomplete="off" data-lpignore="true" data-1p-ignore></label><button class="boton" type="submit">Crear administrador</button></form>';
     else if (i.modo === 'invitacion' && !ES_CELULAR) cuerpo = '<p class="pie">La invitación se usa en el celular, porque allí queda registrada la huella. Abre esta misma dirección en tu teléfono.</p><button type="button" class="enlace" data-modo="entrar">Volver</button>';
-    else if (i.modo === 'invitacion') cuerpo = '<form id="form-invitacion" class="formulario"><p class="pie">Escribe el código que te dio el administrador. Luego registras la huella de este celular.</p><label>Código de invitación<input name="codigo" required maxlength="8" autocapitalize="characters" autocomplete="off"></label><button class="boton" type="submit">Continuar</button><button type="button" class="enlace" data-modo="entrar">Volver</button></form>';
+    else if (i.modo === 'invitacion') cuerpo = '<form id="form-invitacion" class="formulario"><p class="pie">Escribe el código que te dio el administrador. Luego registras la huella de este celular.</p><label>Código de invitación<input name="codigo" value="' + e(i.codigo || '') + '" required maxlength="8" autocapitalize="characters" autocomplete="off"></label><button class="boton" type="submit">Continuar</button><button type="button" class="enlace" data-modo="entrar">Volver</button></form>';
     else cuerpo = (hayHuella() ? '<button type="button" class="boton" id="btn-entrar-huella">' + (ES_CELULAR ? 'Entrar con huella' : 'Entrar con la huella del celular') + '</button>' + (ES_CELULAR ? '' : '<p class="pie centro">Aparece un código QR: escanéalo con el teléfono donde registraste tu huella.</p>') + '<div class="separador"><span>o con PIN</span></div>' : '') +
       '<form id="form-pin-ingreso" class="formulario"><label>Usuario (el corto que creaste, no tu nombre)<input name="usuario" required autocapitalize="none" autocomplete="username" placeholder="por ejemplo: jorge" value="' + e(ls.get('ultimoUsuario', '')) + '"></label><label>PIN<input name="pin" type="text" class="pin" inputmode="numeric" required autocomplete="off" data-lpignore="true" data-1p-ignore></label><button class="boton secundario" type="submit">Entrar con PIN</button></form>' +
       '<button type="button" class="enlace" data-modo="invitacion">Tengo una invitación</button>';
@@ -643,7 +656,7 @@
         .catch(function (err) { if (est.sesion) { est.vista = 'cuenta'; est.ingreso.ocupado = false; pintar(); cargarDatos(true); abrirCuenta(mensajeHuella(err)); } else ocupado(false, mensajeHuella(err)); });
     }
     else if (f.id === 'form-acceso') {
-      api('crearAcceso', c).then(function (r) { est.nuevo = r; return cargarAccesos(); }).catch(function (err) { document.getElementById('error-acceso').textContent = err.message; });
+      api('crearAcceso', c).then(function (r) { r.tel = c.whatsapp || ''; est.nuevo = r; return cargarAccesos(); }).catch(function (err) { document.getElementById('error-acceso').textContent = err.message; });
     }
     else if (f.id === 'form-pin') {
       api('cambiarPin', c).then(function () { f.reset(); document.getElementById('error-pin').textContent = 'PIN cambiado.'; }).catch(function (err) { document.getElementById('error-pin').textContent = err.message; });
@@ -702,6 +715,11 @@
   }
 
   function iniciar() {
+    var inv = (location.search.match(/[?&]invitacion=([A-Za-z0-9]{4,12})/) || [])[1];
+    if (inv) {
+      try { history.replaceState(null, '', location.pathname); } catch (err) { /* sin historial */ }
+      if (!est.sesion) { est.ingreso.modo = 'invitacion'; est.ingreso.codigo = inv.toUpperCase(); }
+    }
     pintar();
     if (!API) return;
     revisarInactividad();

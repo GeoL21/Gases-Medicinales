@@ -33,6 +33,9 @@ button, input, select { font: inherit; color: inherit; }
 .boton.mini { min-height: 44px; padding: 0 12px; font-size: 13px; }
 .enlace { min-height: 44px; border: 0; background: none; color: var(--vino); font-weight: 700; text-decoration: underline; cursor: pointer; }
 
+a.boton { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.boton.whatsapp { background: #1F6B4A; align-self: flex-start; }
+
 /* Ingreso */
 .ingreso { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px 20px; }
 .ingreso .panel { width: 100%; max-width: 400px; }
