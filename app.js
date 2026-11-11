@@ -381,44 +381,156 @@
     pintar(); cargarCrono(); return true;
   }
 
+  /* ───────── Costos y facturas (fase 3, solo consulta) ───────── */
+  var MES3 = MESES.map(function (m) { return m.slice(0, 3); });
+  function nombreRubro(r) {
+    var x = r.toLowerCase();
+    return x.indexOf('tanque') >= 0 ? 'Tanque criogénico' : x.indexOf('energ') >= 0 ? 'Energía de las plantas' : x.indexOf('redes') >= 0 ? 'Mantenimiento de redes' : x.indexOf('prueba') >= 0 ? 'Pruebas hidrostáticas' : r;
+  }
+  function sedeOk(r) { return est.filtro.sede === 'Ambas' || r.sede === est.filtro.sede; }
+  function anioCostos() { return est.filtro.anio || hoy.getFullYear(); }
+  /** Ejecutado por rubro para un filtro de mes (0 = todo el año). Devuelve { lista, valor } o null si el rubro no tiene fuente. */
+  function fuenteRubro(d, rubro) {
+    var r = rubro.toLowerCase();
+    if (r.indexOf('tanque') >= 0) return { l: d.tanque, campo: 'valor' };
+    if (r.indexOf('cilindro') >= 0) return { l: d.cilindros, campo: 'valor' };
+    if (r.indexOf('energ') >= 0) return { l: d.energia, campo: 'valor' };
+    if (r.indexOf('redes') >= 0) return { l: d.cronograma, campo: 'materiales', hastaHoy: true };
+    return null;
+  }
+  function delPeriodo(l, anio, mes, hastaHoy) {
+    return l.filter(function (r) {
+      if (!sedeOk(r) || r.anio !== anio || (mes && r.mes !== mes)) return false;
+      return !hastaHoy || r.anio < hoy.getFullYear() || (r.anio === hoy.getFullYear() && r.mes <= hoy.getMonth() + 1);
+    });
+  }
+  function cobertura(l, campo) {
+    var con = l.filter(function (r) { return r[campo]; });
+    if (!con.length) return 'Aún no hay costo cargado';
+    var ms = con.map(function (r) { return r.mes; }), a = Math.min.apply(null, ms), b = Math.max.apply(null, ms), sedes = {};
+    con.forEach(function (r) { sedes[r.sede] = 1; });
+    var falta = sedesVisibles().filter(function (s) { return !sedes[s]; });
+    return (falta.length && sedesVisibles().length > 1 ? 'Solo ' + Object.keys(sedes).join(' y ') + ' · ' : '') + (a === b ? MESES[a - 1].toLowerCase() : MES3[a - 1].toLowerCase() + '–' + MES3[b - 1].toLowerCase());
+  }
+  function totalMes(d, anio, mes) {
+    var t = 0;
+    ['tanque', 'cilindro', 'energ', 'redes'].forEach(function (k) { var f = fuenteRubro(d, k); t += D.suma(delPeriodo(f.l, anio, mes, f.hastaHoy), f.campo); });
+    return t;
+  }
+  function documentos(d, anio, mes) {
+    var l = [];
+    delPeriodo(d.cilindros, anio, mes).forEach(function (r) {
+      var pend = /pend/i.test(r.estado);
+      l.push({ tipo: 'Remisión', num: r.remision || 'sin número', concepto: 'Cilindros · ' + r.gas + ' · ' + r.sede, fecha: r.fecha, mes: r.mes, valor: r.valor, estado: pend ? 'Por firmar' : 'Firmado', clase: pend ? 'firmar' : 'ok', grupo: 'Cilindros' });
+    });
+    delPeriodo(d.tanque, anio, mes).forEach(function (r) {
+      l.push({ tipo: r.factura ? 'Factura' : 'Remisión', num: r.factura || r.remision || 'sin número', concepto: 'Tanque · ' + r.sede + (r.factura && r.remision ? ' · remisión ' + r.remision : ''), fecha: r.fecha, mes: r.mes, valor: r.valor,
+        estado: r.estimado ? 'Sin factura (estimado)' : 'Facturado', clase: r.estimado ? 'sinfac' : 'ok', grupo: 'Tanque' });
+    });
+    return l.sort(function (a, b) { return (b.fecha || 0) - (a.fecha || 0) || b.mes - a.mes; });
+  }
   function vistaCostos(d) {
-    var f = est.filtro;
-    var cil = fil(d.cilindros), tan = fil(d.tanque), ene = fil(d.energia), cro = fil(d.cronograma);
-    var c = porSede(cil, 'valor'), t = porSede(tan, 'valor'), en = porSede(ene, 'valor'), m = porSede(cro, 'materiales');
-    var total = c.total + t.total + en.total + m.total;
-    var h = '<section class="rejilla cuatro">' + tarjeta('Total registrado', pesos(total), e(periodo()), 'fuerte') +
-      sedesVisibles().map(function (s) { return tarjeta(s, pesos(c[s] + t[s] + en[s] + m[s]), 'Tanque ' + pesos(t[s]) + ' · cilindros ' + pesos(c[s]) + ' · materiales ' + pesos(m[s])); }).join('') +
-      tarjeta('Energía de plantas', pesos(en.total), ene.length ? 'La hoja no trae año: se toma ' + d.anioEnergia : 'Sin registros en este periodo') + '</section>';
-
-    // Presupuesto anual por rubro (no se parte por mes).
-    var pre = d.presupuesto.filter(function (p) { return f.sede === 'Ambas' || p.sede === f.sede; });
-    var rubros = [];
+    var f = est.filtro, anio = anioCostos(), mes = f.mes;
+    var mesesMeta = mes ? 1 : (anio === hoy.getFullYear() ? hoy.getMonth() + 1 : 12), frac = mesesMeta / 12;
+    var pre = d.presupuesto.filter(sedeOk), rubros = [];
     pre.forEach(function (p) { if (rubros.indexOf(p.sistema) < 0) rubros.push(p.sistema); });
-    function ejecutado(rubro, s) {
-      var r = rubro.toLowerCase();
-      if (r.indexOf('tanque') >= 0) return t[s]; if (r.indexOf('cilindro') >= 0) return c[s];
-      if (r.indexOf('energ') >= 0) return en[s]; if (r.indexOf('redes') >= 0) return m[s];
-      return null;
-    }
-    h += '<section class="panel"><h2>Presupuesto anual frente a lo registrado</h2>' + (rubros.length ? tablaSedes(['Rubro', 'Presupuesto', 'Registrado · ' + periodo(), 'Uso'], rubros.map(function (r) {
-      var p = D.suma(pre.filter(function (x) { return x.sistema === r; }), 'valor');
-      var ej = sedesVisibles().reduce(function (s, x) { var v = ejecutado(r, x); return v == null ? s : (s || 0) + v; }, null);
-      var uso = ej == null ? null : pct(ej, p);
-      return [e(r), pesos(p), ej == null ? '<span class="tenue">Sin registro todavía</span>' : pesos(ej), uso == null ? '—' : '<b class="' + (uso >= 80 ? 'malo' : '') + '">' + uso + ' %</b>'];
-    }), ['Total', pesos(D.suma(pre, 'valor')), pesos(total), '']) +
-      '<span class="pie">El presupuesto es anual; compáralo con «Todo el año». En la hoja, la energía figura con un año distinto al de los demás rubros.</span>' : vacio('No pude leer el presupuesto.')) + '</section>';
+    var presTotal = D.suma(pre, 'valor'), ejecTotal = totalMes(d, anio, mes);
+    var docs = documentos(d, anio, mes), pend = docs.filter(function (x) { return x.clase !== 'ok'; });
+    var h = '<div class="rejilla cuatro">' + tarjeta(mes ? 'Ejecutado en ' + MESES[mes - 1].toLowerCase() : 'Ejecutado del año', pesos(ejecTotal), 'Con lo cargado hasta hoy · ' + anio) +
+      tarjeta('Presupuesto anual', pesos(presTotal), (mes ? 'Doceava parte: ' : 'Meta a ' + MESES[mesesMeta - 1].toLowerCase() + ': ') + pesos(presTotal * frac)) +
+      tarjeta('Ejecución', presTotal ? n1(ejecTotal / (mes ? presTotal / 12 : presTotal) * 100) + ' %' : '—', mes ? 'De la doceava parte del mes' : 'Del presupuesto anual · la meta a la fecha es ' + n1(frac * 100) + ' %') +
+      tarjeta('Por firmar o facturar', pend.length, pend.length ? pesos(D.suma(pend, 'valor')) + ' en remisiones' : 'Todo al día', pend.length ? 'alerta' : '') + '</div>';
 
-    var gases = {};
-    cil.forEach(function (r) { gases[r.gas] = (gases[r.gas] || 0) + r.valor; });
-    var lg = Object.keys(gases).sort(function (a, b) { return gases[b] - gases[a]; });
-    var maxG = lg.length ? gases[lg[0]] : 0;
-    var firmado = cil.filter(function (r) { return !/pend/i.test(r.estado); });
-    h += '<div class="rejilla dos"><section class="panel"><h2>Cilindros por gas</h2>' + (lg.length ? lg.map(function (g) { return barra(g, gases[g], maxG, pesos(gases[g])); }).join('') +
-      '<span class="pie">Firmado ' + pesos(D.suma(firmado, 'valor')) + ' · pendiente de firma ' + pesos(c.total - D.suma(firmado, 'valor')) + '</span>' : vacio('Sin remisiones en este periodo.')) + '</section>';
-    var ultimas = tan.slice().sort(function (a, b) { return b.fecha - a.fecha; }).slice(0, 8);
-    h += '<section class="panel"><h2>Últimas recargas del tanque</h2>' + (ultimas.length ? tablaSedes(['Fecha', 'Sede', 'Remisión', 'm³', 'Valor'], ultimas.map(function (r) {
-      return [r.fecha.toLocaleDateString('es-CO'), r.sede, e(r.remision), n1(r.m3), pesos(r.valor) + (r.estimado ? ' <span class="chip nota">estimado</span>' : '')];
-    })) : vacio('Sin recargas en este periodo.')) + '</section></div>';
+    h += '<section class="panel"><h2>Presupuesto frente a ejecutado, por rubro</h2>';
+    if (!rubros.length) h += vacio('No pude leer el presupuesto.');
+    else {
+      h += '<div class="tabla-caja"><table class="apilar rubros"><thead><tr><th scope="col">Rubro</th><th scope="col" class="der">Presupuesto anual</th><th scope="col" class="der">' + (mes ? 'Doceava parte' : 'Meta a la fecha (' + mesesMeta + ' de 12)') + '</th><th scope="col" class="der">Ejecutado</th><th scope="col" class="der">Avance</th></tr></thead><tbody>' +
+        rubros.map(function (r) {
+          var p = D.suma(pre.filter(function (x) { return x.sistema === r; }), 'valor'), fu = fuenteRubro(d, r);
+          var l = fu ? delPeriodo(fu.l, anio, mes, fu.hastaHoy) : [], ej = fu ? D.suma(l, fu.campo) : 0, base = mes ? p / 12 : p, av = base ? ej / base * 100 : 0;
+          return '<tr><th scope="row">' + e(nombreRubro(r)) + '<br><span class="pie">' + e(fu ? cobertura(l, fu.campo) : 'Aún no hay costo cargado') + '</span></th><td class="der">' + pesos(p) + '</td><td class="der">' + pesos(p * frac) + '</td><td class="der"><b>' + (fu ? pesos(ej) : '<span class="tenue">Sin datos</span>') + '</b></td>' +
+            '<td class="der"><span class="avance"><span class="barra-fondo"><span class="barra-relleno' + (av > 100 ? ' rojo' : '') + '" style="width:' + Math.min(100, av).toFixed(1) + '%"></span>' + (mes ? '' : '<span class="raya" style="left:' + (frac * 100).toFixed(1) + '%"></span>') + '</span><span class="num">' + n1(av) + ' %</span></span></td></tr>';
+        }).join('') + '<tr class="total"><th scope="row">Total</th><td class="der">' + pesos(presTotal) + '</td><td class="der">' + pesos(presTotal * frac) + '</td><td class="der">' + pesos(ejecTotal) + '</td><td class="der">' + (presTotal ? n1(ejecTotal / (mes ? presTotal / 12 : presTotal) * 100) + ' %' : '—') + '</td></tr></tbody></table></div>' +
+        '<p class="pie">' + (mes ? '' : 'La raya negra marca la meta a la fecha (doceavas partes). ') + 'Debajo de cada rubro se indica qué periodo tiene datos cargados, para no confundir «gasté poco» con «falta cargar». En la hoja el presupuesto figura con años distintos por rubro; aquí se compara con el gasto de ' + anio + '.</p>';
+    }
+    h += '</section>';
+
+    var porMes = [], doceava = presTotal / 12, tope = doceava;
+    for (var i = 1; i <= 12; i++) { porMes.push(totalMes(d, anio, i)); tope = Math.max(tope, porMes[i - 1]); }
+    h += '<section class="panel"><h2>Ejecutado mes a mes frente a la doceava parte · ' + anio + '</h2><div class="meses-caja"><div class="meses">' + porMes.map(function (v, i) {
+      return '<button type="button" data-mes="' + (mes === i + 1 ? 0 : i + 1) + '" aria-pressed="' + (mes === i + 1) + '" aria-label="' + MESES[i] + ': ' + pesos(v) + '"><span class="pie">' + (v ? (v / 1e6).toFixed(v < 1e7 ? 1 : 0).replace('.', ',') + ' M' : '') + '</span><i style="height:' + (tope ? v / tope * 100 : 0).toFixed(1) + '%"></i><em>' + MES3[i] + '</em></button>'; }).join('') + '</div>' +
+      (doceava ? '<span class="linea-meta" style="bottom:calc(22px + (100% - 44px) * ' + (doceava / tope).toFixed(4) + ')"><b>Doceava parte: ' + pesos(doceava) + '</b></span>' : '') + '</div>' +
+      '<p class="pie">Toca un mes para ver solo ese mes; tócalo otra vez para volver a todo el año.</p></section>';
+
+    var fd = (est.docs = est.docs || { filtro: 'Todos' }).filtro;
+    var grupos = [['Todos', docs.length], ['Por firmar', docs.filter(function (x) { return x.clase === 'firmar'; }).length], ['Sin factura', docs.filter(function (x) { return x.clase === 'sinfac'; }).length], ['Tanque', null], ['Cilindros', null]];
+    var vis = docs.filter(function (x) { return fd === 'Todos' || (fd === 'Por firmar' && x.clase === 'firmar') || (fd === 'Sin factura' && x.clase === 'sinfac') || x.grupo === fd; });
+    h += '<section class="panel"><h2>Facturas y remisiones · ' + e(mes ? MESES[mes - 1] + ' ' + anio : String(anio)) + '</h2><div class="pastillas" role="group" aria-label="Filtrar documentos">' + grupos.map(function (g) {
+      return '<button type="button" data-docs="' + g[0] + '" aria-pressed="' + (fd === g[0]) + '">' + g[0] + (g[1] != null ? ' · ' + g[1] : '') + '</button>'; }).join('') +
+      '<label class="campo-mini buscar"><span class="oculto">Buscar por número</span><input type="search" id="buscar-doc" placeholder="Buscar número" inputmode="search" autocomplete="off"></label></div>';
+    h += vis.length ? '<div class="tabla-caja"><table id="tabla-docs" class="apilar docs"><thead><tr><th scope="col">Documento</th><th scope="col">Concepto</th><th scope="col" class="der">Fecha</th><th scope="col" class="der">Valor</th><th scope="col" class="der">Estado</th></tr></thead><tbody>' + vis.map(function (x) {
+      return '<tr data-num="' + e(String(x.num).toLowerCase()) + '"><th scope="row"><span class="chip nota">' + x.tipo + '</span> ' + e(x.num) + '</th><td>' + e(x.concepto) + '</td><td class="der">' + (x.fecha ? x.fecha.getDate() + ' ' + MES3[x.fecha.getMonth()].toLowerCase() + ' ' + x.fecha.getFullYear() : MES3[x.mes - 1] + ' ' + anio) + '</td><td class="der">' + pesos(x.valor) + '</td><td class="der"><span class="chip ' + (x.clase === 'ok' ? 'est-hecho' : 'est-reprog') + '">' + x.estado + '</span></td></tr>'; }).join('') +
+      '</tbody></table></div><p class="pie">' + vis.length + ' documentos, del más reciente al más antiguo. Salen de «Cilindros ejecutados», «Recargas» y «Tanque criogenico».</p>' : vacio('Sin documentos con ese filtro en este periodo.');
+    return h + '</section>';
+  }
+
+  /* ───────── Indicadores (KPI) ───────── */
+  function normal(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function metaDe(k) {
+    var m = String(k.meta).replace(/>=/g, '≥').replace(/<=/g, '≤').match(/(≥|≤|<|>)\s*([\d.,]+)/);
+    return { op: m ? m[1] : '', n: m ? D.num(m[2]) : null, unidad: /%/.test(k.meta) ? ' %' : /min/i.test(k.meta) ? ' min' : '', anual: /año|anual/i.test(k.meta + ' ' + k.frecuencia) };
+  }
+  function cumple(v, m) { if (v == null || m.n == null) return null; return m.op === '≥' ? v >= m.n : m.op === '≤' ? v <= m.n : m.op === '<' ? v < m.n : m.op === '>' ? v > m.n : null; }
+  function promedio(l) { return l.length ? l.reduce(function (a, b) { return a + b; }, 0) / l.length : null; }
+  function resultadoKpi(d, k, anio, mes) {
+    var ind = normal(k.indicador), m = metaDe(k), porMes = [], nota = '', fuente, valor = null, seguimiento = false, i;
+    var esRutinas = /rutina|preventiv/.test(ind), esPresupuesto = /presupuest|costo/.test(ind);
+    if (esRutinas) {
+      fuente = 'Calculado del cronograma';
+      for (i = 1; i <= 12; i++) porMes.push(promedio(delPeriodo(d.cronograma, anio, i, true).filter(function (r) { return r.cumplimiento != null; }).map(function (r) { return r.cumplimiento; })));
+      var filas = delPeriodo(d.cronograma, anio, mes, true).filter(function (r) { return r.cumplimiento != null; });
+      valor = promedio(filas.map(function (r) { return r.cumplimiento; }));
+      nota = sedesVisibles().map(function (s) { var p = promedio(filas.filter(function (r) { return r.sede === s; }).map(function (r) { return r.cumplimiento; })); return p == null ? null : s + ' ' + n1(p) + ' %'; }).filter(Boolean).join(' · ');
+      m.unidad = ' %';
+    } else if (esPresupuesto) {
+      fuente = 'Calculado de costos'; seguimiento = true;
+      var pres = D.suma(d.presupuesto.filter(sedeOk), 'valor'), ej = totalMes(d, anio, 0), ms = anio === hoy.getFullYear() ? hoy.getMonth() + 1 : 12;
+      valor = pres ? ej / pres * 100 : null; m.unidad = ' % ejecutado';
+      nota = 'Meta a la fecha: ' + n1(ms / 12 * 100) + ' %. Falta definir contra qué se mide la reducción.';
+      for (i = 1; i <= 12; i++) porMes.push(null);
+    } else {
+      fuente = 'Escrito en la hoja';
+      var mias = d.kpiRes.filter(function (r) { var a = normal(r.indicador); return r.anio === anio && (a === ind || (a.length > 8 && (a.indexOf(ind) >= 0 || ind.indexOf(a) >= 0))) && (est.filtro.sede === 'Ambas' || r.sede === est.filtro.sede || r.sede === 'Ambas'); });
+      for (i = 1; i <= 12; i++) porMes.push(promedio(mias.filter(function (r) { return r.mes === i; }).map(function (r) { return r.resultado; })));
+      var elegidas = mes ? mias.filter(function (r) { return r.mes === mes; }) : mias;
+      if (elegidas.length) {
+        if (m.anual && !mes) { valor = elegidas.reduce(function (a, r) { return a + r.resultado; }, 0); nota = 'Suma del año'; }
+        else { var ult = Math.max.apply(null, elegidas.map(function (r) { return r.mes; })), u = elegidas.filter(function (r) { return r.mes === ult; });
+          valor = promedio(u.map(function (r) { return r.resultado; }));
+          nota = MESES[ult - 1] + (u.length > 1 ? ' · ' + u.map(function (r) { return r.sede + ' ' + n1(r.resultado); }).join(' · ') : '') + (u[0].obs ? ' · ' + u[0].obs : ''); }
+      }
+    }
+    var c = seguimiento ? null : cumple(valor, m);
+    return { valor: valor, texto: valor == null ? 'Sin resultado' : n1(valor) + m.unidad, nota: nota, fuente: fuente, estado: valor == null ? 'sin' : seguimiento || c == null ? 'seg' : c ? 'ok' : 'mal',
+      tendencia: porMes.map(function (v) { var x = cumple(v, m); return v == null ? '' : seguimiento || x == null ? 'seg' : x ? 'ok' : 'mal'; }) };
+  }
+  function vistaKpi(d) {
+    var anio = anioCostos(), mes = est.filtro.mes;
+    if (!d.kpi.length) return '<section class="panel">' + vacio('No pude leer el cuadro de mando de la planeación estratégica.') + '</section>';
+    var res = d.kpi.map(function (k) { return { k: k, r: resultadoKpi(d, k, anio, mes) }; });
+    function n(e2) { return res.filter(function (x) { return x.r.estado === e2; }).length; }
+    var ETI = { ok: ['Cumple', 'est-hecho'], mal: ['No cumple', 'est-vencido'], seg: ['En seguimiento', 'est-pendiente'], sin: ['Sin resultado', 'est-pendiente'] };
+    var h = '<div class="rejilla cuatro">' + tarjeta('Indicadores', res.length, 'Del cuadro de mando') + tarjeta('Cumplen', n('ok'), e(periodo())) +
+      tarjeta('No cumplen', n('mal'), n('mal') ? res.filter(function (x) { return x.r.estado === 'mal'; }).map(function (x) { return e(x.k.indicador); }).join(' · ') : 'Ninguno', n('mal') ? 'alerta' : '') +
+      tarjeta('Sin resultado', n('sin'), n('sin') ? 'Falta escribirlos en la hoja' : 'Todos tienen dato') + '</div>';
+    h += '<div class="rejilla tres">' + res.map(function (x) {
+      return '<article class="tarjeta kpi-t ' + (x.r.estado === 'mal' ? 'alerta' : '') + '"><div class="detalle-cab"><b>' + e(x.k.indicador) + '</b><span class="chip ' + ETI[x.r.estado][1] + '">' + ETI[x.r.estado][0] + '</span></div>' +
+        '<div class="kpi-valor"><span class="valor">' + e(x.r.texto) + '</span><span class="pie">Meta: <b class="meta">' + e(x.k.meta) + '</b></span></div>' +
+        '<span class="pie">' + e(x.r.nota || x.k.perspectiva) + '</span><div class="tendencia" role="img" aria-label="Meses con resultado de enero a diciembre">' + x.r.tendencia.map(function (t, i) { return '<i class="' + t + '" title="' + MES3[i] + '"></i>'; }).join('') + '</div>' +
+        '<span class="pie">' + x.r.fuente + ' · ' + e(x.k.frecuencia.toLowerCase()) + '</span></article>'; }).join('') + '</div>';
+    var ult = d.kpiRes.filter(function (r) { return r.anio === anio; }).sort(function (a, b) { return b.mes - a.mes; }).slice(0, 12);
+    h += '<section class="panel"><h2>Resultados escritos en la hoja</h2>' + (ult.length ? tablaSedes(['Indicador', 'Mes', 'Sede', 'Resultado', 'Observación'], ult.map(function (r) { return [e(r.indicador), MESES[r.mes - 1], e(r.sede), n1(r.resultado), e(r.obs)]; })) : vacio('Todavía no hay resultados escritos para ' + anio + '.')) +
+      '<p class="pie">Los indicadores que no se calculan solos se escriben cada mes en la hoja «PWA Gases Medicinales», pestaña «Resultados KPI»: año, mes, sede, indicador y resultado (solo el número). La app solo la lee.</p></section>';
     return h;
   }
 
@@ -470,7 +582,7 @@
   function vistaProximas() {
     return '<section class="panel"><h2>Lo que sigue</h2><ul class="alertas">' + [
       ['Más adelante', 'Marcar lo ejecutado del cronograma desde la app, con evidencia (hoy se marca en las hojas).'],
-      ['Fase 3', 'Costos con facturas y órdenes de compra, y resultados de los KPI calculados cada mes.'],
+      
       ['Fase 4', 'Cilindros, tanque, inventario y documentos, conectando las apps que ya existen.']
     ].map(function (x) { return '<li><span class="chip nota">' + x[0] + '</span><span>' + x[1] + '</span></li>'; }).join('') + '</ul></section>';
   }
@@ -491,20 +603,20 @@
   }
 
   /* ───────── armazón ───────── */
-  var VISTAS = [['inicio', 'Inicio'], ['cronograma', 'Cronograma'], ['costos', 'Costos'], ['proximas', 'Lo que sigue'], ['accesos', 'Accesos'], ['cuenta', 'Mi cuenta']];
+  var VISTAS = [['inicio', 'Inicio'], ['cronograma', 'Cronograma'], ['costos', 'Costos'], ['kpi', 'Indicadores (KPI)'], ['proximas', 'Lo que sigue'], ['accesos', 'Accesos'], ['cuenta', 'Mi cuenta']];
 
   function pintar() {
     if (!est.sesion) { $app.innerHTML = pantallaIngreso(); return; }
     var u = est.sesion.usuario, d = est.datos;
     var vistas = VISTAS.filter(function (v) { return v[0] !== 'accesos' || u.rol === 'Administrador'; });
-    var conFiltros = ['inicio', 'cronograma', 'costos'].indexOf(est.vista) >= 0;
+    var conFiltros = ['inicio', 'cronograma', 'costos', 'kpi'].indexOf(est.vista) >= 0;
     var cuerpo;
     if (est.vista === 'accesos') cuerpo = vistaAccesos();
     else if (est.vista === 'cuenta') cuerpo = vistaCuenta();
     else if (est.vista === 'proximas') cuerpo = vistaProximas();
     else if (est.vista === 'cronograma') cuerpo = vistaCronograma(d);
     else if (!d) cuerpo = '<section class="panel">' + vacio(est.cargando ? 'Leyendo las hojas del departamento… La primera vez puede tardar hasta un minuto.' : 'Todavía no hay datos.') + (est.cargando ? '' : '<button type="button" class="boton secundario" data-recargar="1">Volver a leer</button>') + '</section>';
-    else cuerpo = { inicio: vistaInicio, cronograma: vistaCronograma, costos: vistaCostos }[est.vista](d);
+    else cuerpo = { inicio: vistaInicio, cronograma: vistaCronograma, costos: vistaCostos, kpi: vistaKpi }[est.vista](d);
     var errores = d ? Object.keys(d.errores) : [];
     $app.innerHTML = '<div class="armazon"><nav class="menu" aria-label="Secciones"><div class="marca-app"><b>Gases Medicinales</b><span>Clínica Reina Catalina</span></div>' +
       vistas.map(function (v) { return '<button type="button" data-vista="' + v[0] + '" aria-current="' + (est.vista === v[0] ? 'page' : 'false') + '">' + v[1] + '</button>'; }).join('') +
@@ -542,6 +654,8 @@
     var b = ev.target.closest('button'); if (!b) return;
     if (b.dataset.vista) { est.vista = b.dataset.vista; est.nuevo = null; pintar(); if (est.vista === 'accesos') cargarAccesos(); if (est.vista === 'cuenta') abrirCuenta(); if (est.vista === 'cronograma') cargarCrono(); window.scrollTo(0, 0); }
     else if (est.vista === 'cronograma' && est.sesion && eventosCrono(b)) { /* atendido */ }
+    else if (b.dataset.mes !== undefined) { est.filtro.mes = +b.dataset.mes; ls.set('filtro', est.filtro); pintar(); }
+    else if (b.dataset.docs) { est.docs = { filtro: b.dataset.docs }; pintar(); }
     else if (b.dataset.recargar) { if (est.vista === 'cronograma') cargarCrono(true); cargarDatos(); }
     else if (b.dataset.sede) { est.filtro.sede = b.dataset.sede; ls.set('filtro', est.filtro); if (est.crono) est.crono.sel = null; pintar(); }
     else if (b.dataset.modo) { est.ingreso = { modo: b.dataset.modo, error: '', ocupado: false }; pintar(); }
@@ -568,6 +682,12 @@
   }
   setInterval(revisarInactividad, 30000);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) revisarInactividad(); });
+
+  document.addEventListener('input', function (ev) {
+    if (ev.target.id !== 'buscar-doc') return;
+    var q = ev.target.value.trim().toLowerCase();
+    Array.prototype.forEach.call(document.querySelectorAll('#tabla-docs tbody tr'), function (tr) { tr.hidden = !!q && tr.dataset.num.indexOf(q) < 0; });
+  });
 
   document.addEventListener('change', function (ev) {
     var t = ev.target;

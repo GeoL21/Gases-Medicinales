@@ -171,6 +171,14 @@
     return filas;
   }
 
+  /** Pestaña «Resultados KPI» de la hoja de la app: lo que el administrador escribe cada mes. */
+  function kpiResultados(m) {
+    return (m || []).slice(1).map(function (f) {
+      var s = texto(f[2]);
+      return { anio: num(f[0]), mes: typeof f[1] === 'number' ? f[1] : mesDe(f[1]), sede: sede(s) || 'Ambas', indicador: texto(f[3]), resultado: num(f[4]), tiene: texto(f[4]) !== '', obs: texto(f[5]) };
+    }).filter(function (r) { return r.anio && r.mes >= 1 && r.mes <= 12 && r.indicador && r.tiene; });
+  }
+
   function planta(m) {
     var r = {};
     (m || []).forEach(function (f) {
@@ -272,7 +280,7 @@
       cronograma: cronograma(f.cronoBquilla, 'Barranquilla').concat(cronograma(f.cronoBaranoa, 'Baranoa')),
       almacen: almacen(f.almacenBquilla, 'Barranquilla').concat(almacen(f.almacenBaranoa, 'Baranoa')),
       energia: energia(f.energia, anioBase), anioEnergia: anioBase,
-      hidrostatica: hidrostatica(f.hidrostatica), kpi: kpi(f.kpi), planta: planta(f.planta)
+      hidrostatica: hidrostatica(f.hidrostatica), kpi: kpi(f.kpi), kpiRes: kpiResultados(f.kpiResultados), planta: planta(f.planta)
     };
   }
 

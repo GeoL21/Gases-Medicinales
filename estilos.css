@@ -169,10 +169,62 @@ thead .enlace { min-height: 44px; font-size: 12px; text-transform: uppercase; le
 @keyframes aparecer { from { opacity: 0; } }
 @keyframes subir { from { transform: translateY(24px); opacity: 0; } }
 
+/* Costos y KPI (fase 3) */
+.avance { display: inline-flex; align-items: center; gap: 10px; justify-content: flex-end; }
+.avance .barra-fondo { display: block; width: 150px; }
+.avance .barra-relleno { display: block; }
+.avance .raya { position: absolute; top: -4px; width: 2px; height: 20px; background: var(--texto); }
+.avance .num { min-width: 58px; font-weight: 700; }
+.meses-caja { position: relative; }
+.meses { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; height: 220px; }
+.meses button { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; height: 100%; min-width: 0; padding: 0; border: 0; border-radius: 8px; background: none; cursor: pointer; }
+.meses button .pie { font-size: 10px; font-weight: 700; white-space: nowrap; }
+.meses button i { width: 100%; min-height: 2px; background: #C9A9B6; border-radius: 5px 5px 0 0; }
+.meses button em { font-style: normal; font-size: 11px; color: var(--tenue); height: 18px; }
+.meses button[aria-pressed=true] i, .meses button:hover i { background: var(--vino); }
+.meses button[aria-pressed=true] em { color: var(--vino); font-weight: 800; }
+.linea-meta { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--texto); pointer-events: none; }
+.linea-meta b { position: absolute; right: 0; bottom: 2px; font-size: 12px; background: #fff; padding: 0 4px; }
+.pastillas { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pastillas button { min-height: 44px; padding: 0 14px; border: 1px solid var(--borde); border-radius: 22px; background: #fff; font-weight: 600; font-size: 13px; cursor: pointer; }
+.pastillas button[aria-pressed=true] { background: var(--vino); border-color: var(--vino); color: #fff; font-weight: 800; }
+.buscar { margin-left: auto; }
+.buscar input { min-height: 44px; padding: 0 12px; border: 1px solid #B9ABB1; border-radius: 10px; background: #fff; width: 170px; }
+.rejilla.tres { grid-template-columns: minmax(0, 1fr); }
+.kpi-t { gap: 8px; }
+.kpi-t .detalle-cab { align-items: flex-start; }
+.kpi-t .chip { white-space: nowrap; }
+.kpi-valor { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.kpi-valor .meta { color: var(--vino); }
+.tendencia { display: flex; gap: 3px; }
+.tendencia i { flex: 1; height: 8px; border-radius: 4px; background: #EFE8EB; }
+.tendencia i.ok { background: var(--verde); }
+.tendencia i.mal { background: var(--rojo); }
+.tendencia i.seg { background: #B9ABB1; }
+
+/* En celular las tablas de costos se apilan en vez de desplazarse a los lados */
+@media (max-width: 699px) {
+  .apilar thead { display: none; }
+  .apilar, .apilar tbody { display: block; }
+  .apilar tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 10px 0; border-top: 1px solid var(--borde-suave); }
+  .apilar tr[hidden] { display: none; }
+  .apilar th, .apilar td { border: 0; padding: 0; text-align: left; }
+  .apilar.docs th { grid-area: 1 / 1; } .apilar.docs td:nth-child(4) { grid-area: 1 / 2; text-align: right; font-weight: 700; }
+  .apilar.docs td:nth-child(2) { grid-area: 2 / 1; } .apilar.docs td:nth-child(5) { grid-area: 2 / 2; text-align: right; }
+  .apilar.docs td:nth-child(3) { grid-area: 3 / 1 / 3 / 3; color: var(--tenue); font-size: 13px; text-align: left; }
+  .apilar.rubros td:nth-child(2), .apilar.rubros td:nth-child(3) { display: none; }
+  .apilar.rubros th { grid-area: 1 / 1; } .apilar.rubros td:nth-child(4) { grid-area: 1 / 2; text-align: right; }
+  .apilar.rubros td:nth-child(5) { grid-area: 2 / 1 / 2 / 3; }
+  .apilar.rubros .avance { display: flex; width: 100%; } .apilar.rubros .avance .barra-fondo { flex: 1; width: auto; }
+  .apilar tr.total { border-top: 2px solid var(--borde); }
+  .buscar { margin-left: 0; flex: 1; } .buscar input { width: 100%; }
+}
+
 /* Tablet */
 @media (min-width: 700px) {
   .contenido { padding: 22px; }
   .rejilla.cuatro, .rejilla.dos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rejilla.tres { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* PC: menú lateral y más columnas */
@@ -195,6 +247,7 @@ thead .enlace { min-height: 44px; font-size: 12px; text-transform: uppercase; le
   .velo { display: none; }
   .detalle { position: sticky; top: 16px; left: auto; right: auto; bottom: auto; z-index: 1; max-height: calc(100vh - 32px); border-radius: 14px; padding-bottom: 20px; animation: none; align-self: start; }
   .rejilla.dos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rejilla.tres { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
