@@ -245,7 +245,7 @@ thead .enlace { min-height: 44px; font-size: 12px; text-transform: uppercase; le
   .menu button { flex: none; text-align: left; color: #fff; font-size: 14px; font-weight: 500; }
   .menu button[aria-current=page] { background: #fff; color: var(--vino); }
   .menu .quien { display: block; margin-top: auto; padding: 12px 10px 0; border-top: 1px solid #8A4660; color: #F1DCE4; font-size: 12px; }
-  .contenido { padding: 26px 30px; gap: 18px; max-width: 1500px; }
+  .contenido { padding: 22px 28px; gap: 18px; max-width: none; }
   .rejilla.cuatro { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .rejilla.dos-uno { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
   .panel { padding: 20px; }
