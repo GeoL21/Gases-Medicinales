@@ -17,7 +17,7 @@
   var est = {
     sesion: ls.get('sesion', null), datos: null, vista: 'inicio', cargando: false, aviso: '',
     filtro: ls.get('filtro', { sede: 'Ambas', mes: hoy.getMonth() + 1, anio: hoy.getFullYear() }),
-    ingreso: { modo: 'entrar', error: '', ocupado: false }, accesos: null, cuenta: null, nuevo: null
+    ingreso: { modo: 'entrar', error: '', ocupado: false }, accesos: null, cuenta: null, nuevo: null, demo: false, act: 'Todo', resumenOculto: false
   };
   var $app = document.getElementById('app');
 
@@ -45,6 +45,7 @@
 
   /* ───────── servidor ───────── */
   function api(accion, datos) {
+    if (est.demo) return Promise.reject(new Error('Estás viendo datos de ejemplo: no se consulta el servidor.'));
     if (!API) return Promise.reject(new Error('Falta la dirección del servidor.'));
     var cuerpo = Object.assign({ accion: accion, token: est.sesion && est.sesion.token }, datos || {});
     var corte = window.AbortController ? new AbortController() : null, reloj = corte && setTimeout(function () { corte.abort(); }, 150000);
@@ -63,7 +64,7 @@
     est.sesion = { token: r.token, vence: r.vence, usuario: r.usuario };
     ls.set('sesion', est.sesion); ls.set('ultimoUsuario', r.usuario.usuario);
   }
-  function cerrarLocal() { est.sesion = null; est.datos = null; est.crono = null; ls.del('sesion'); ls.del('paquete'); est.vista = 'inicio'; }
+  function cerrarLocal() { est.demo = false; est.sesion = null; est.datos = null; est.crono = null; ls.del('sesion'); ls.del('paquete'); est.vista = 'inicio'; }
 
   /* ───────── huella del celular (WebAuthn) ───────── */
   function hayHuella() { return !!(window.PublicKeyCredential && navigator.credentials); }
@@ -105,6 +106,7 @@
 
   /* ───────── datos ───────── */
   function cargarDatos(silencioso) {
+    if (est.demo) { est.datos = window.Ejemplo.datos(hoy); est.cargando = false; pintar(); return Promise.resolve(); }
     var guardado = ls.get('paquete', null);
     if (guardado && !est.datos) est.datos = D.preparar(guardado);
     est.cargando = true; if (!silencioso) pintar();
@@ -231,10 +233,11 @@
     mesesNecesarios().forEach(function (k) {
       if (c.meses[k] && !forzar) return;
       if (c.meses[k] === undefined) c.meses[k] = null;
+      if (est.demo) { c.meses[k] = window.Ejemplo.tareas(k, hoy); c.errores[k] = []; return; }
       c.pendientes++;
       api('cronograma', { mes: k }).then(function (r) { c.meses[k] = D.tareasCrono(r); c.errores[k] = Object.keys(r.errores || {}); c.aviso = ''; })
         .catch(function (err) { c.aviso = navigator.onLine ? err.message : 'Sin conexión: el cronograma detallado necesita internet.'; if (!c.meses[k]) delete c.meses[k]; })
-        .then(function () { c.pendientes--; if (est.vista === 'cronograma') pintar(); });
+        .then(function () { c.pendientes--; if (est.vista === 'cronograma' || est.vista === 'inicio') pintar(); });
     });
   }
   function tareasCargadas() {
@@ -609,35 +612,237 @@
       '<label>Usuario para entrar<input name="usuario" required pattern="[a-z0-9._\\-]{3,20}" autocapitalize="none" placeholder="por ejemplo: jorge"></label><label>PIN de 6 a 12 números<input name="pin" type="text" class="pin" inputmode="numeric" pattern="\\d{6,12}" required autocomplete="off" data-lpignore="true" data-1p-ignore></label><button class="boton" type="submit">Crear administrador</button></form>';
     else if (i.modo === 'invitacion' && !ES_CELULAR) cuerpo = '<p class="pie">La invitación se usa en el celular, porque allí queda registrada la huella. Abre esta misma dirección en tu teléfono.</p><button type="button" class="enlace" data-modo="entrar">Volver</button>';
     else if (i.modo === 'invitacion') cuerpo = '<form id="form-invitacion" class="formulario"><p class="pie">Escribe el código que te dio el administrador. Luego registras la huella de este celular.</p><label>Código de invitación<input name="codigo" value="' + e(i.codigo || '') + '" required maxlength="8" autocapitalize="characters" autocomplete="off"></label><button class="boton" type="submit">Continuar</button><button type="button" class="enlace" data-modo="entrar">Volver</button></form>';
-    else cuerpo = (hayHuella() ? '<button type="button" class="boton" id="btn-entrar-huella">' + (ES_CELULAR ? 'Entrar con huella' : 'Entrar con la huella del celular') + '</button>' + (ES_CELULAR ? '' : '<p class="pie centro">Aparece un código QR: escanéalo con el teléfono donde registraste tu huella.</p>') + '<div class="separador"><span>o con PIN</span></div>' : '') +
-      '<form id="form-pin-ingreso" class="formulario"><label>Usuario (el corto que creaste, no tu nombre)<input name="usuario" required autocapitalize="none" autocomplete="username" placeholder="por ejemplo: jorge" value="' + e(ls.get('ultimoUsuario', '')) + '"></label><label>PIN<input name="pin" type="text" class="pin" inputmode="numeric" required autocomplete="off" data-lpignore="true" data-1p-ignore></label><button class="boton secundario" type="submit">Entrar con PIN</button></form>' +
-      '<button type="button" class="enlace" data-modo="invitacion">Tengo una invitación</button>';
-    return '<main class="ingreso"><div class="icono-app" aria-hidden="true"><svg viewBox="0 0 24 24" width="52" height="52" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="8" height="13" rx="3"/><path d="M7 8V6h4v2M9 4v2"/><circle cx="17.5" cy="7.5" r="3.5"/><path d="M17.5 7.5l1.4-1.4"/></svg></div>' +
+    else cuerpo = '<p class="pie">Versión de prueba del diseño: se entra con usuario y PIN, sin huella.</p><form id="form-pin-ingreso" class="formulario"><label>Usuario (el corto que creaste, no tu nombre)<input name="usuario" required autocapitalize="none" autocomplete="username" placeholder="por ejemplo: jorge" value="' + e(ls.get('ultimoUsuario', '')) + '"></label><label>PIN<input name="pin" type="text" class="pin" inputmode="numeric" required autocomplete="off" data-lpignore="true" data-1p-ignore></label><button class="boton" type="submit">Entrar con PIN</button></form>' +
+      '<div class="separador"><span>o sin entrar</span></div><button type="button" class="boton secundario" id="btn-ejemplo">Ver con datos de ejemplo</button>';
+    return '<main class="ingreso"><div class="icono-app" aria-hidden="true"><svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="8" height="13" rx="3"/><path d="M7 8V6h4v2M9 4v2"/><circle cx="17.5" cy="7.5" r="3.5"/><path d="M17.5 7.5l1.4-1.4"/></svg></div>' +
       '<h1>Gases Medicinales</h1><p class="pie centro">Clínica Reina Catalina · Barranquilla y Baranoa</p><div class="panel">' + cuerpo + '<p class="error" role="alert">' + e(i.error) + '</p>' + (i.ocupado ? '<p class="pie centro">Un momento…</p>' : '') + '</div>' + bloqueInstalar() + '</main>';
   }
 
-  /* ───────── armazón ───────── */
-  var VISTAS = [['inicio', 'Inicio'], ['cronograma', 'Cronograma'], ['costos', 'Costos'], ['kpi', 'Indicadores (KPI)'], ['proximas', 'Lo que sigue'], ['accesos', 'Accesos'], ['cuenta', 'Mi cuenta']];
+  /* ───────── armazón (prueba de diseño: tablero de tres columnas) ───────── */
+  var VISTAS = [
+    ['inicio', 'Resumen', 'ti-layout-dashboard', '#2F6BFF'], ['cronograma', 'Cronograma', 'ti-calendar-event', '#2F6BFF'], ['operacion', 'Cilindros y tanque', 'ti-cylinder', '#16A34A'],
+    ['costos', 'Costos y facturas', 'ti-receipt', '#E11D48'], ['kpi', 'Indicadores (KPI)', 'ti-chart-bar', '#7C3AED'],
+    ['proximas', 'Lo que sigue', 'ti-route', '#F59E0B'], ['accesos', 'Accesos', 'ti-users', '#0EA5E9'], ['cuenta', 'Mi cuenta', 'ti-user-circle', '#6B7280']
+  ];
+  var PRINCIPALES = ['inicio', 'cronograma', 'operacion', 'costos', 'kpi'];
+  function ic(n, extra) { return '<i class="ti ' + n + '"' + (extra || '') + ' aria-hidden="true"></i>'; }
+  function iniciales(n) { return String(n || '?').split(/\s+/).filter(String).slice(0, 2).map(function (x) { return x.charAt(0).toUpperCase(); }).join(''); }
+  function horaCorta() { return new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }); }
+  function diaCorto(f) { return f ? f.getDate() + ' ' + MES3[f.getMonth()].toLowerCase() : ''; }
+  function haceCuanto(f) {
+    if (!(f instanceof Date)) return '';
+    var min = Math.round((Date.now() - f.getTime()) / 60000);
+    if (min < 1) return 'Ahora mismo'; if (min < 60) return 'Hace ' + min + ' min'; if (min < 1440 && f.getDate() === hoy.getDate()) return 'Hoy, ' + hora(f);
+    var dias = Math.round(min / 1440); return dias <= 1 ? 'Ayer' : dias < 30 ? 'Hace ' + dias + ' días' : diaCorto(f) + ' ' + f.getFullYear();
+  }
+  function periodoActual() { var anio = est.filtro.anio || hoy.getFullYear(); return { anio: anio, mes: est.filtro.mes, k: claveMes(new Date(anio, (est.filtro.mes || hoy.getMonth() + 1) - 1, 15)) }; }
+  /** Tareas del cronograma detallado del mes del filtro (se leen una vez y quedan guardadas). */
+  function tareasDelMes() {
+    var c = cr(), k = periodoActual().k;
+    if (c.meses[k] === undefined) {
+      if (est.demo) c.meses[k] = window.Ejemplo.tareas(k, hoy);
+      else {
+        c.meses[k] = null; c.pendientes++;
+        api('cronograma', { mes: k }).then(function (r) { c.meses[k] = D.tareasCrono(r); c.errores[k] = Object.keys(r.errores || {}); })
+          .catch(function () { delete c.meses[k]; c.fallo = k; })
+          .then(function () { c.pendientes--; if (est.vista === 'inicio') pintar(); });
+      }
+    }
+    var l = c.meses[k];
+    return l ? l.filter(function (t) { return est.filtro.sede === 'Ambas' || t.sede === est.filtro.sede; }) : null;
+  }
+  function cuentas(d) {
+    var p = periodoActual(), cro = delPeriodo(d.cronograma, p.anio, p.mes, true);
+    var areas = [
+      ['Plantas', D.suma(cro, 'plantasHechas'), D.suma(cro, 'plantasProg'), '#16A34A', 'P'],
+      ['Inspecciones', D.suma(cro, 'inspHechas'), D.suma(cro, 'inspProg'), '#F59E0B', 'I'],
+      ['Redes', D.suma(cro, 'redesHechas'), D.suma(cro, 'redesProg'), '#2F6BFF', 'R'],
+      ['Correctivos', D.suma(cro, 'ticketsCerrados'), D.suma(cro, 'tickets'), '#E5E7EB', 'C']
+    ];
+    var hechas = 0, prog = 0; areas.forEach(function (a) { hechas += a[1]; prog += a[2]; });
+    var pre = d.presupuesto.filter(function (x) { return x.anio === p.anio && sedeOk(x); });
+    var presu = D.suma(pre, 'valor') / (p.mes ? 12 : 1);
+    var gasto = totalMes(d, p.anio, p.mes);
+    var porFirmar = D.suma(delPeriodo(d.cilindros, p.anio, p.mes).filter(function (r) { return /pend/i.test(r.estado); }), 'valor');
+    return { p: p, areas: areas, hechas: hechas, prog: prog, presu: presu, gasto: gasto, porFirmar: porFirmar, cil: delPeriodo(d.cilindros, p.anio, p.mes) };
+  }
+
+  function anillo(n, total, color) {
+    var pc = total ? Math.round(n / total * 100) : 0;
+    return '<span class="anillo" style="background:conic-gradient(' + color + ' ' + pc + '%, #E5E7EB 0)"><b>' + n + '</b></span>';
+  }
+  function insignias(l) {
+    var s = {}; l.forEach(function (t) { s[t.sede] = 1; });
+    return '<span class="insignias">' + Object.keys(s).map(function (x) { return '<i class="ins ' + (x === 'Baranoa' ? 'ba' : 'bq') + '" title="' + x + '">' + (x === 'Baranoa' ? 'BA' : 'BQ') + '</i>'; }).join('') + '</span>';
+  }
+
+  function vistaResumen(d) {
+    var c = cuentas(d), p = c.p, tareas = tareasDelMes();
+    var nomPer = p.mes ? MESES[p.mes - 1] + ' ' + p.anio : 'Todo ' + p.anio;
+    var cumpl = pct(c.hechas, c.prog);
+    var cantCil = D.suma(c.cil, 'cantidad'), pctPres = pct(c.gasto, c.presu);
+    var h = '<div class="seccion-cab"><h2>Vista general</h2><span class="pildora">' + ic('ti-clock') + e(nomPer) + '</span></div>';
+    h += '<section class="rejilla tres-fijo">' +
+      '<div class="metrica"><div class="metrica-cab"><span>Tareas ejecutadas ' + ic('ti-info-circle', ' title="Plantas, inspecciones, redes y correctivos hechos frente a lo programado"') + '</span>' + ic('ti-file-filled', ' style="color:#2F6BFF"') + '</div><b>' + c.hechas + '</b>' +
+        '<span class="sube">' + ic('ti-arrow-up-right') + (c.prog ? cumpl + ' % de ' + c.prog + ' programadas' : 'Sin programación') + '</span></div>' +
+      '<div class="metrica"><div class="metrica-cab"><span>Cilindros recibidos ' + ic('ti-info-circle', ' title="Cilindros de las remisiones del periodo"') + '</span>' + ic('ti-cylinder', ' style="color:#E11D48"') + '</div><b>' + n1(cantCil) + '</b>' +
+        '<span class="sube">' + ic('ti-arrow-up-right') + pesos(D.suma(c.cil, 'valor')) + ' en remisiones</span></div>' +
+      '<div class="metrica"><div class="metrica-cab"><span>Gasto del periodo ' + ic('ti-info-circle', ' title="Tanque, cilindros, energía y materiales de redes"') + '</span>' + ic('ti-wallet', ' style="color:#7C3AED"') + '</div><b>' + pesos(c.gasto) + '</b>' +
+        '<span class="sube' + (pctPres > 100 ? ' baja' : '') + '">' + ic(pctPres > 100 ? 'ti-arrow-down-right' : 'ti-arrow-up-right') + (c.presu ? pctPres + ' % del presupuesto' : 'Sin presupuesto cargado') + '</span></div></section>';
+
+    // Carga de trabajo (cronograma detallado del mes)
+    var abiertas = tareas ? tareas.filter(function (t) { return t.estado !== 'Hecho'; }).length : 0;
+    h += '<div class="seccion-cab"><h2>Carga de trabajo</h2><span class="tenue chico">' + ic('ti-cloud') + ' ' + (tareas ? abiertas + ' tareas abiertas' : 'Leyendo el cronograma…') + '</span></div>';
+    if (!tareas) h += '<section class="metrica carga">' + vacio(cr().fallo ? 'No se pudo leer el cronograma detallado.' : 'Leyendo el cronograma del mes…') + '</section>';
+    else {
+      var grupos = [['Vencido', 'Vencidas', '#111827'], ['Pendiente', 'Por hacer', '#F97316'], ['Reprogramado', 'Reprogramadas', '#2F6BFF'], ['Hecho', 'Hechas', '#16A34A']];
+      h += '<section class="metrica carga">' + grupos.map(function (g) {
+        var l = tareas.filter(function (t) { return t.estado === g[0]; });
+        var fechas = l.map(function (t) { return t.fecha || t.desde; }).filter(Boolean).sort(function (a, b) { return a - b; });
+        var pie = !l.length ? 'Ninguna' : g[0] === 'Hecho' ? 'de ' + tareas.length + ' del mes' : g[0] === 'Vencido' ? 'Desde ' + diaCorto(fechas[0]) : fechas.length ? 'Vence ' + diaCorto(fechas.filter(function (f) { return f >= medio(hoy); })[0] || fechas[fechas.length - 1]) : '';
+        return '<button type="button" class="grupo" data-vista="cronograma">' + anillo(l.length, tareas.length, g[2]) + '<span><b>' + g[1] + '</b><em>' + e(pie) + '</em></span>' + insignias(l) + '</button>';
+      }).join('') + '</section>';
+    }
+
+    // Presupuesto y cumplimiento por área
+    var ejec = Math.max(0, c.gasto - c.porFirmar), libre = Math.max(0, c.presu - c.gasto), base = Math.max(c.presu, c.gasto) || 1;
+    var seg = [['Ejecutado', ejec, '#2F6BFF'], ['Por firmar', c.porFirmar, '#F97316'], ['Libre', libre, 'rayas']];
+    h += '<div class="rejilla dos-graf"><section class="metrica grande"><div class="metrica-cab"><b class="tit">Presupuesto del periodo</b><span class="pildora">' + ic('ti-clock') + (p.mes ? 'Este mes' : 'Este año') + '</span></div>' +
+      '<span class="tenue chico">' + (p.mes ? 'Doceava parte del anual' : 'Presupuesto anual') + ' · ' + e(est.filtro.sede === 'Ambas' ? 'ambas sedes' : est.filtro.sede) + '</span>' +
+      '<div class="cifra">' + pesos(c.presu) + ' <span>presupuesto</span></div>' +
+      '<div class="segmentos">' + seg.map(function (s) {
+        var w = s[1] / base * 100; if (w < 0.5) return '';
+        return '<div style="flex:' + w.toFixed(2) + '" title="' + s[0] + ': ' + pesos(s[1]) + '"><span class="seg-tit"' + (w < 14 ? ' style="visibility:hidden"' : '') + '><b>' + Math.round(s[1] / base * 100) + ' %</b> <em>' + (s[1] >= 1e6 ? n1(s[1] / 1e6) + ' M' : pesos(s[1])) + '</em></span><i class="' + (s[2] === 'rayas' ? 'rayas' : '') + '" style="' + (s[2] === 'rayas' ? '' : 'background:' + s[2]) + '"></i></div>';
+      }).join('') + '</div>' +
+      '<div class="leyenda">' + seg.map(function (s) { return '<span><i style="background:' + (s[2] === 'rayas' ? '#E5E7EB' : s[2]) + '"></i>' + s[0] + '</span>'; }).join('') + '</div></section>';
+
+    var mejor = -1, mejorI = -1;
+    var prev = p.mes ? delPeriodo(d.cronograma, p.mes === 1 ? p.anio - 1 : p.anio, p.mes === 1 ? 12 : p.mes - 1) : [];
+    var campos = [['plantasHechas', 'plantasProg'], ['inspHechas', 'inspProg'], ['redesHechas', 'redesProg'], ['ticketsCerrados', 'tickets']];
+    c.areas.forEach(function (a, i) { var v = pct(a[1], a[2]); if (v != null && v > mejor) { mejor = v; mejorI = i; } });
+    h += '<section class="metrica grande"><div class="metrica-cab"><b class="tit">Cumplimiento por área</b><span class="tenue chico">' + e(est.filtro.sede === 'Ambas' ? 'Ambas sedes' : est.filtro.sede) + '</span></div><span class="tenue chico">Hecho frente a programado</span>' +
+      '<div class="barras"><div class="meta-linea" style="bottom:90%"><span>Meta 90 %</span></div>' + c.areas.map(function (a, i) {
+        var v = pct(a[1], a[2]), alto = v == null ? 0 : Math.min(100, v);
+        var ant = prev.length ? pct(D.suma(prev, campos[i][0]), D.suma(prev, campos[i][1])) : null;
+        var globo = i === mejorI && ant != null && v != null ? '<span class="globo" style="bottom:' + Math.max(alto, 14) + '%">' + ic(v >= ant ? 'ti-arrow-up' : 'ti-arrow-down') + Math.abs(v - ant) + ' %</span>' : '';
+        return '<div class="barra-col rayas" title="' + a[0] + ': ' + a[1] + ' de ' + a[2] + '">' + globo + '<i style="height:' + Math.max(alto, v == null ? 0 : 14) + '%;background:' + a[3] + (a[3] === '#E5E7EB' ? ';color:#111827' : '') + '">' + (v == null ? '' : v + ' %') + '</i></div>';
+      }).join('') + '</div>' +
+      '<div class="barras-pie">' + c.areas.map(function (a) { return '<span><i class="ins" style="background:' + a[3] + '22;color:' + (a[3] === '#E5E7EB' ? '#6B7280' : a[3]) + '">' + a[4] + '</i>' + a[0] + '</span>'; }).join('') + '</div></section></div>';
+
+    // Actividad reciente
+    var act = actividad(d, c, tareas);
+    var filtroA = est.act, vis = act.filter(function (x) { return filtroA === 'Todo' || x.grupo === filtroA; });
+    h += '<section class="metrica actividad"><div class="metrica-cab"><b class="tit">Actividad reciente</b><span class="act-filtros"><span class="segmento-mini">' + ['Todo', 'Documentos', 'Alertas', 'Trabajos'].map(function (g) {
+      return '<button type="button" data-act="' + g + '" aria-pressed="' + (filtroA === g) + '">' + g + '</button>'; }).join('') + '</span><button type="button" class="enlace-negro" data-vista="costos">Ver todo</button></span></div>' +
+      (vis.length ? '<ul>' + vis.slice(0, 6).map(function (x) {
+        return '<li data-b="1"><span class="avatar" style="background:' + x.fondo + ';color:' + x.color + '">' + x.av + '</span><span class="act-texto"><span>' + x.html + '</span><em>' + e(x.cuando) + '</em></span><span class="estado ' + x.clase + '">' + e(x.estado) + '</span><button type="button" class="tres-puntos" data-vista="' + x.vista + '" aria-label="Abrir ' + e(x.estado) + '">' + ic('ti-dots') + '</button></li>';
+      }).join('') + '</ul>' : vacio('Nada para este filtro.')) + '</section>';
+    return h;
+  }
+
+  function actividad(d, c, tareas) {
+    var l = [], p = c.p;
+    documentos(d, p.anio, p.mes).slice(0, 6).forEach(function (x) {
+      var pend = x.clase !== 'ok';
+      l.push({ grupo: 'Documentos', fecha: x.fecha, av: x.grupo === 'Tanque' ? ic('ti-temperature-snow') : ic('ti-cylinder'), fondo: x.grupo === 'Tanque' ? '#E0F2FE' : '#DCFCE7', color: x.grupo === 'Tanque' ? '#075985' : '#166534',
+        html: x.tipo + ' <b>' + e(x.num) + '</b> · ' + e(x.concepto) + ' · ' + pesos(x.valor), cuando: haceCuanto(x.fecha) || MESES[x.mes - 1], estado: x.estado, clase: x.clase === 'ok' ? 'hecho' : x.clase === 'firmar' ? 'asignado' : 'riesgo', vista: 'costos', orden: pend ? 1 : 2 });
+    });
+    d.niveles.filter(sedeOk).forEach(function (n) {
+      var cap = { Barranquilla: [136, 40], Baranoa: [80, 24] }[n.sede]; if (!cap) return;
+      var pc = Math.round(n.nivel / cap[0] * 100), bajo = n.nivel <= cap[1] * 1.25;
+      l.push({ grupo: 'Alertas', fecha: n.lectura instanceof Date ? n.lectura : null, av: ic('ti-temperature-snow'), fondo: '#FEF3C7', color: '#92400E',
+        html: 'Tanque criogénico de ' + e(n.sede) + ' en <b>' + pc + ' %</b> (' + n1(n.nivel) + ' in)', cuando: n.lectura instanceof Date ? haceCuanto(n.lectura) : String(n.lectura || ''), estado: bajo ? 'En riesgo' : 'Normal', clase: bajo ? 'riesgo' : 'comentario', vista: 'operacion', orden: bajo ? 0 : 3 });
+    });
+    d.autorizados.filter(function (a) { return sedeOk(a) && a.autorizados > 0 && a.disponibles <= 0; }).forEach(function (a) {
+      l.push({ grupo: 'Alertas', fecha: null, av: ic('ti-alert-triangle'), fondo: '#FEE2E2', color: '#991B1B', html: '<b>' + e(a.gas) + '</b> en ' + e(a.sede) + ': 0 disponibles de ' + a.autorizados, cuando: 'Trimestre actual', estado: 'En riesgo', clase: 'riesgo', vista: 'operacion', orden: 0 });
+    });
+    (tareas || []).filter(function (t) { return t.estado === 'Hecho' || t.estado === 'Vencido'; }).sort(function (a, b) { return (b.fecha || b.desde || 0) - (a.fecha || a.desde || 0); }).slice(0, 4).forEach(function (t) {
+      var f = t.fecha || t.desde;
+      l.push({ grupo: 'Trabajos', fecha: f, av: e(t.sede === 'Baranoa' ? 'BA' : 'BQ'), fondo: '#F3F4F6', color: '#374151', html: e(t.tipo === 'Inspección' ? 'Ronda' : t.tipo) + ' · <b>' + e(t.titulo || t.actividad) + '</b>', cuando: f ? diaCorto(f) + ' · ' + t.sede : t.sede,
+        estado: t.estado === 'Hecho' ? 'Hecho' : 'Vencido', clase: t.estado === 'Hecho' ? 'hecho' : 'riesgo', vista: 'cronograma', orden: t.estado === 'Vencido' ? 1 : 2 });
+    });
+    return l.sort(function (a, b) { return a.orden - b.orden || (b.fecha || 0) - (a.fecha || 0); });
+  }
+
+  function textoResumen(d) {
+    var c = cuentas(d), p = c.p, t = tareasDelMes() || [];
+    var venc = t.filter(function (x) { return x.estado === 'Vencido'; }).length;
+    return 'Gases Medicinales · ' + (p.mes ? MESES[p.mes - 1] + ' ' + p.anio : p.anio) + ' · ' + (est.filtro.sede === 'Ambas' ? 'ambas sedes' : est.filtro.sede) + '\n\n' +
+      '• Tareas ejecutadas: ' + c.hechas + ' de ' + c.prog + (c.prog ? ' (' + pct(c.hechas, c.prog) + ' %)' : '') + '\n' +
+      (venc ? '• Vencidas: ' + venc + '\n' : '') +
+      '• Cilindros recibidos: ' + n1(D.suma(c.cil, 'cantidad')) + '\n' +
+      '• Gasto: ' + pesos(c.gasto) + (c.presu ? ' de ' + pesos(c.presu) + ' (' + pct(c.gasto, c.presu) + ' %)' : '') + '\n' +
+      (c.porFirmar ? '• Remisiones por firmar: ' + pesos(c.porFirmar) + '\n' : '');
+  }
+
+  function panelDerecho(d) {
+    var u = est.sesion.usuario, c = d ? cuentas(d) : null, t = d ? tareasDelMes() : null;
+    var cumpl = c ? pct(c.hechas, c.prog) : null;
+    var prox = (t || []).filter(function (x) { return x.estado !== 'Hecho' && (x.fecha || x.desde) && (x.fecha || x.desde) >= medio(hoy); })
+      .sort(function (a, b) { return (a.fecha || a.desde) - (b.fecha || b.desde); }).slice(0, 3);
+    var iconoTipo = { Redes: ['ti-calendar-event', '#2F6BFF'], Plantas: ['ti-building-factory-2', '#F59E0B'], 'Inspección': ['ti-clipboard-check', '#16A34A'], Correctivo: ['ti-tool', '#E11D48'] };
+    var h = '<aside class="derecha" aria-label="Tu panel"><div class="perfil"><div class="perfil-fondo"><button type="button" class="lapiz" data-vista="cuenta" aria-label="Mi cuenta">' + ic('ti-pencil') + '</button></div>' +
+      '<div class="perfil-cuerpo"><span class="avatar grande">' + e(iniciales(u.nombre)) + '</span><b class="nombre">' + e(u.nombre) + ' ' + ic('ti-rosette-discount-check', ' style="color:#2F6BFF"') + '</b>' +
+      '<span class="tenue chico">@' + e(u.usuario) + ' <span class="en-linea">' + (est.demo ? 'Ejemplo' : 'En línea') + '</span></span>' +
+      '<div class="perfil-botones">' + (u.rol === 'Administrador' ? '<button type="button" data-vista="accesos">' + ic('ti-brand-whatsapp') + 'Invitar</button>' : '') +
+      '<button type="button" data-vista="cuenta">' + ic('ti-fingerprint') + 'Cuenta</button><button type="button" id="btn-compartir2">' + ic('ti-share-3') + 'Compartir</button></div></div></div>' +
+      '<div class="dato-doble"><div><span>Sede</span><b>' + e(est.filtro.sede === 'Ambas' ? 'BQ + Baranoa' : est.filtro.sede) + '</b></div><div><span>Hora</span><b id="reloj">' + horaCorta() + '</b></div></div>' +
+      '<div class="avance-caja"><div><span>Avance de ' + e(c && c.p.mes ? MESES[c.p.mes - 1].toLowerCase() : 'el año') + '</span><b>' + (cumpl == null ? '—' : cumpl + ' %') + '</b></div><div class="avance-barra"><i style="width:' + Math.min(100, cumpl || 0) + '%"></i></div></div>' +
+      '<h3 class="lado-tit">Próximo</h3>' + (t == null ? '<p class="tenue chico">Leyendo el cronograma…</p>' : prox.length ? '<ul class="proximo">' + prox.map(function (x) {
+        var i = iconoTipo[x.tipo] || ['ti-calendar', '#2F6BFF'], f = x.fecha || x.desde;
+        return '<li><button type="button" data-vista="cronograma"><span class="cuadro" style="color:' + i[1] + '">' + ic(i[0]) + '</span><span><b>' + e(x.titulo || x.actividad) + '</b><em>' + (mismoDia(f, hoy) ? 'Hoy' : DIAS_C[f.getDay()] + ' ' + diaCorto(f)) + ' · ' + e(x.sede) + '</em></span></button></li>';
+      }).join('') + '</ul>' : '<p class="tenue chico">Nada pendiente en lo que queda del mes.</p>');
+    if (!est.resumenOculto && d) {
+      var venc = (t || []).filter(function (x) { return x.estado === 'Vencido'; }).length;
+      h += '<div class="resumen-ia"><span class="cuadro">' + ic('ti-sparkles') + '</span><b>Tu mes, resumido</b><p>' + c.hechas + ' tareas cerradas' + (venc ? ' y ' + venc + ' vencidas' : '') + '. Gasto de ' + pesos(c.gasto) + (c.presu ? ', el ' + pct(c.gasto, c.presu) + ' % del presupuesto' : '') + '.</p>' +
+        '<div class="fila-botones"><a class="boton-negro" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(textoResumen(d)) + '">' + ic('ti-brand-whatsapp') + 'Enviar resumen</a><button type="button" class="boton-blanco" id="btn-luego">Luego</button></div></div>';
+    }
+    return h + '</aside>';
+  }
 
   function pintar() {
     if (!est.sesion) { $app.innerHTML = pantallaIngreso(); return; }
     var u = est.sesion.usuario, d = est.datos;
     var vistas = VISTAS.filter(function (v) { return v[0] !== 'accesos' || u.rol === 'Administrador'; });
-    var conFiltros = ['inicio', 'cronograma', 'costos', 'kpi'].indexOf(est.vista) >= 0;
+    var actual = vistas.filter(function (v) { return v[0] === est.vista; })[0] || vistas[0];
+    var conFiltros = ['inicio', 'cronograma', 'costos', 'kpi', 'operacion'].indexOf(est.vista) >= 0;
     var cuerpo;
     if (est.vista === 'accesos') cuerpo = vistaAccesos();
     else if (est.vista === 'cuenta') cuerpo = vistaCuenta();
     else if (est.vista === 'proximas') cuerpo = vistaProximas();
     else if (est.vista === 'cronograma') cuerpo = vistaCronograma(d);
     else if (!d) cuerpo = '<section class="panel">' + vacio(est.cargando ? 'Leyendo las hojas del departamento… La primera vez puede tardar hasta un minuto.' : 'Todavía no hay datos.') + (est.cargando ? '' : '<button type="button" class="boton secundario" data-recargar="1">Volver a leer</button>') + '</section>';
-    else cuerpo = { inicio: vistaInicio, cronograma: vistaCronograma, costos: vistaCostos, kpi: vistaKpi }[est.vista](d);
+    else cuerpo = { inicio: vistaResumen, operacion: vistaInicio, costos: vistaCostos, kpi: vistaKpi }[est.vista](d);
     var errores = d ? Object.keys(d.errores) : [];
-    $app.innerHTML = '<div class="armazon"><nav class="menu" aria-label="Secciones"><div class="marca-app"><b>Gases Medicinales</b><span>Clínica Reina Catalina</span></div>' +
-      vistas.map(function (v) { return '<button type="button" data-vista="' + v[0] + '" aria-current="' + (est.vista === v[0] ? 'page' : 'false') + '">' + v[1] + '</button>'; }).join('') +
-      '<span class="quien">' + e(u.nombre) + ' · ' + e(u.rol) + '</span></nav><main class="contenido"><header class="cabecera"><div><h1>' + e(vistas.filter(function (v) { return v[0] === est.vista; })[0][1]) + '</h1>' +
-      '<p class="pie">' + (d && d.leido ? 'Datos leídos ' + hora(d.leido) : '') + (est.cargando ? ' · actualizando…' : ' <button type="button" class="enlace" data-recargar="1">Actualizar</button>') + '</p></div>' + (est.vista === 'cronograma' ? filtrosCrono() : conFiltros ? filtros() : '') + '</header>' +
-      (est.aviso ? '<p class="banda" role="status">' + e(est.aviso) + '</p>' : '') +
-      (errores.length && conFiltros ? '<p class="banda" role="status">No pude leer: ' + e(errores.join(', ')) + '. Revisa la pestaña Config de la hoja de la app.</p>' : '') + cuerpo + '</main></div>';
+    function boton(v, conTexto) {
+      return '<button type="button" data-vista="' + v[0] + '" aria-current="' + (est.vista === v[0] ? 'page' : 'false') + '"' + (conTexto ? '' : ' title="' + v[1] + '" aria-label="' + v[1] + '"') + '>' + ic(v[2], conTexto && est.vista !== v[0] ? ' style="color:' + v[3] + '"' : '') + (conTexto ? '<span>' + v[1] + '</span>' : '') + '</button>';
+    }
+    var principales = vistas.filter(function (v) { return PRINCIPALES.indexOf(v[0]) >= 0; }), otras = vistas.filter(function (v) { return PRINCIPALES.indexOf(v[0]) < 0; });
+    var h = '<div class="tz' + (est.vista === 'inicio' ? ' con-derecha' : '') + '">' +
+      '<nav class="riel" aria-label="Accesos rápidos"><span class="logo">' + ic('ti-building-hospital') + '</span>' + principales.map(function (v) { return boton(v, false); }).join('') +
+      '<span class="espacio"></span><button type="button" data-recargar="1" title="Actualizar datos" aria-label="Actualizar datos">' + ic('ti-refresh') + '</button>' +
+      '<button type="button" class="yo" data-vista="cuenta" title="Mi cuenta" aria-label="Mi cuenta">' + e(iniciales(u.nombre)) + '</button></nav>' +
+      '<nav class="lateral" aria-label="Secciones"><div class="lat-cab"><b>Gases medicinales</b><span class="tenue">' + ic('ti-layout-sidebar') + '</span></div>' +
+      '<button type="button" class="nuevo" data-recargar="1">' + ic('ti-plus') + '<span>Actualizar datos</span></button>' +
+      '<div class="lat-lista">' + boton(vistas[0], true) + '</div>' +
+      '<div class="lat-grupo">Departamento ' + ic('ti-chevron-down') + '</div><div class="lat-lista">' + principales.slice(1).map(function (v) { return boton(v, true); }).join('') + '</div>' +
+      '<div class="lat-grupo">Sedes ' + ic('ti-chevron-down') + '</div><div class="lat-lista arbol">' + ['Ambas'].concat(D.SEDES).map(function (s) {
+        return '<button type="button" data-sede="' + s + '" aria-current="' + (est.filtro.sede === s ? 'true' : 'false') + '">' + ic(s === 'Ambas' ? 'ti-map-2' : 'ti-map-pin', ' style="color:' + (s === 'Baranoa' ? '#F97316' : s === 'Barranquilla' ? '#2F6BFF' : '#16A34A') + '"') + '<span>' + (s === 'Ambas' ? 'Ambas sedes' : s) + '</span></button>'; }).join('') + '</div>' +
+      '<div class="lat-grupo">Más</div><div class="lat-lista">' + otras.map(function (v) { return boton(v, true); }).join('') + '</div>' +
+      '<span class="espacio"></span><div class="lat-tarjeta">' + (est.demo ? '<div><b>' + ic('ti-flask', ' style="color:#F59E0B"') + ' Datos de ejemplo</b><span class="pildora mini">Prueba</span></div><p class="tenue chico">Nada de esto sale de tus hojas.</p><button type="button" class="enlace-azul" id="btn-salir">Salir del ejemplo</button>'
+        : '<div><b>' + ic('ti-device-desktop', ' style="color:#F59E0B"') + ' Diseño de prueba</b><span class="pildora mini">Rama</span></div><p class="tenue chico">Sesión de ' + MIN_INACTIVO + ' min sin uso</p>' + (yaInstalada() || !avisoInstalar ? '' : '<button type="button" class="enlace-azul" id="btn-instalar">Instalar</button>')) + '</div></nav>' +
+      '<main class="centro-col"><header class="barra-sup"><span class="migas tenue">Gases <span>/</span> <b>' + e(actual[1]) + '</b></span>' +
+      '<label class="buscador">' + ic('ti-search') + '<span class="oculto">Buscar</span><input id="buscar-global" type="search" placeholder="Buscar tareas, documentos, cilindros" autocomplete="off"><kbd>/</kbd></label>' +
+      '<span class="sup-botones"><button type="button" class="boton-blanco" id="btn-exportar">' + ic('ti-calendar-share') + 'Exportar</button><button type="button" class="boton-blanco" id="btn-compartir">' + ic('ti-share') + 'Compartir</button>' +
+      (u.rol === 'Administrador' ? '<button type="button" class="boton-negro" data-vista="accesos">' + ic('ti-user-plus') + 'Invitar</button>' : '') + '</span></header>' +
+      '<div class="pagina"><div class="titulo-fila"><h1>' + ic(actual[2]) + e(actual[1]) + '</h1><span class="tenue chico">' + ic('ti-clock') + ' ' + (est.cargando ? 'Actualizando…' : d && d.leido ? 'Actualizado ' + e(haceCuanto(new Date(d.leido)).toLowerCase()) : '') + '</span>' +
+      '<span class="avatares"><i class="ins bq">BQ</i><i class="ins ba">BA</i></span><span class="pildora">' + (est.demo ? '<i class="punto ambar"></i>Ejemplo' : '<i class="punto"></i>En vivo') + '</span></div>' +
+      '<div class="pestanas-sup" role="tablist" aria-label="Secciones">' + principales.map(function (v) { return '<button type="button" role="tab" data-vista="' + v[0] + '" aria-selected="' + (est.vista === v[0]) + '">' + ic(v[2]) + v[1] + '</button>'; }).join('') + '</div>' +
+      (est.vista === 'cronograma' ? '<div class="fila-filtros">' + filtrosCrono() + '</div>' : conFiltros ? '<div class="fila-filtros">' + filtros() + '</div>' : '') +
+      (est.aviso && !est.demo ? '<p class="banda" role="status">' + e(est.aviso) + '</p>' : '') +
+      (errores.length && conFiltros ? '<p class="banda" role="status">No pude leer: ' + e(errores.join(', ')) + '. Revisa la pestaña Config de la hoja de la app.</p>' : '') + cuerpo + '</div></main>' +
+      (est.vista === 'inicio' ? panelDerecho(d) : '') + '</div>';
+    $app.innerHTML = h;
   }
 
   /* ───────── eventos ───────── */
@@ -666,6 +871,22 @@
 
   document.addEventListener('click', function (ev) {
     var b = ev.target.closest('button'); if (!b) return;
+    if (b.id === 'btn-ejemplo') {
+      est.demo = true; est.accesos = []; est.crono = null; est.vista = 'inicio';
+      est.filtro = { sede: 'Ambas', mes: hoy.getMonth() + 1, anio: hoy.getFullYear() };
+      est.sesion = { token: null, vence: null, usuario: { id: 'ejemplo', nombre: 'Jorge Ortiz', usuario: 'jorge', rol: 'Administrador' } };
+      cargarDatos(); return;
+    }
+    if (b.dataset.act) { est.act = b.dataset.act; pintar(); return; }
+    if (b.id === 'btn-luego') { est.resumenOculto = true; pintar(); return; }
+    if (b.id === 'btn-exportar') { window.print(); return; }
+    if (b.id === 'btn-compartir' || b.id === 'btn-compartir2') {
+      if (!est.datos) return;
+      var txt = textoResumen(est.datos);
+      if (navigator.share && ES_CELULAR) navigator.share({ text: txt }).catch(function () {});
+      else window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank', 'noopener');
+      return;
+    }
     if (b.dataset.vista) { est.vista = b.dataset.vista; est.nuevo = null; pintar(); if (est.vista === 'accesos') cargarAccesos(); if (est.vista === 'cuenta') abrirCuenta(); if (est.vista === 'cronograma') cargarCrono(); window.scrollTo(0, 0); }
     else if (est.vista === 'cronograma' && est.sesion && eventosCrono(b)) { /* atendido */ }
     else if (b.dataset.mes !== undefined) { est.filtro.mes = +b.dataset.mes; ls.set('filtro', est.filtro); pintar(); }
@@ -703,7 +924,20 @@
   setInterval(revisarInactividad, 30000);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) revisarInactividad(); });
 
+  /* Buscador de la barra superior: filtra lo que se ve en la página (actividad, tareas, filas de tablas). */
+  function filtrarPagina(q) {
+    q = normal(q);
+    Array.prototype.forEach.call(document.querySelectorAll('.pagina [data-b], .pagina .tarea, .pagina tbody tr, .pagina .fila-ronda, .pagina .alertas li'), function (el) {
+      el.classList.toggle('no-coincide', !!q && normal(el.textContent).indexOf(q) < 0);
+    });
+  }
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === '/' && !/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '')) { var x = document.getElementById('buscar-global'); if (x) { ev.preventDefault(); x.focus(); } }
+  });
+  setInterval(function () { var r = document.getElementById('reloj'); if (r) r.textContent = horaCorta(); }, 20000);
+
   document.addEventListener('input', function (ev) {
+    if (ev.target.id === 'buscar-global') { filtrarPagina(ev.target.value); return; }
     if (ev.target.id !== 'buscar-doc') return;
     var q = ev.target.value.trim().toLowerCase();
     Array.prototype.forEach.call(document.querySelectorAll('#tabla-docs tbody tr'), function (tr) { tr.hidden = !!q && tr.dataset.num.indexOf(q) < 0; });
@@ -716,7 +950,7 @@
     else if (t.name === 'metodo') { var campo = document.getElementById('campo-pin'); campo.hidden = t.value !== 'pin'; campo.querySelector('input').required = t.value === 'pin'; }
   });
 
-  function cargarAccesos() { return api('accesos').then(function (r) { est.accesos = r.accesos; pintar(); }); }
+  function cargarAccesos() { if (est.demo) { est.accesos = est.accesos || []; return Promise.resolve(); } return api('accesos').then(function (r) { est.accesos = r.accesos; pintar(); }); }
   function abrirCuenta(mensaje) {
     return api('yo').then(function (r) { est.cuenta = r; pintar(); if (mensaje) document.getElementById('error-huella').textContent = mensaje; }).catch(function () {});
   }

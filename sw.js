@@ -1,6 +1,6 @@
 /* Service worker de la PWA Gases Medicinales. Al cambiar archivos, subir la versión: -v1 → -v2. */
-var CACHE = 'gases-medicinales-v11';
-var ARCHIVOS = ['./', 'index.html', 'estilos.css', 'config.js', 'datos.js', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
+var CACHE = 'gases-medicinales-v12-prueba';
+var ARCHIVOS = ['./', 'index.html', 'estilos.css', 'config.js', 'datos.js', 'ejemplo.js', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(ARCHIVOS); }).then(function () { return self.skipWaiting(); }));
